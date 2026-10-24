@@ -7,7 +7,8 @@ import { idempotencyKeys, orderItems, orders, products } from "@/db/schema";
 import { getTgUserFromRequest } from "@/lib/telegram-auth";
 import { json, errorResponse, HttpError } from "@/lib/http";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
-import { createOrderInvoiceLink } from "@/lib/payments";
+import { createOrderInvoiceLink, paymentsEnabled } from "@/lib/payments";
+import { maybeExpireStaleOrders, orderExpiresAt } from "@/lib/orders/expire";
 import type { Order, OrderItem } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,8 @@ const createOrderSchema = z.object({
 
 function serializeOrder(order: Order, items: OrderItem[]) {
   return {
+    payable: order.status === "pending_payment" && paymentsEnabled(),
+    expiresAt: order.status === "pending_payment" ? orderExpiresAt(order.createdAt).toISOString() : null,
     id: order.id,
     orderNumber: order.orderNumber,
     status: order.status,
@@ -52,6 +55,10 @@ export async function GET(req: NextRequest) {
   try {
     const user = await getTgUserFromRequest(req);
     if (!user) throw new HttpError(401, "Требуется авторизация Telegram", "unauthorized");
+
+    // Освобождаем остатки брошенных заказов, чтобы покупатель не видел
+    // «Ожидает оплаты» по заказу, который уже отменён по таймауту.
+    await maybeExpireStaleOrders();
 
     const myOrders = await db
       .select()

@@ -8,6 +8,7 @@ import { orderItems, orders, tgUsers, type OrderStatus } from "@/db/schema";
 import { getAdminActor } from "@/lib/admin-session";
 import { ForbiddenError, HttpError } from "@/lib/http";
 import { sendMessage } from "@/lib/telegram-bot";
+import { userFacingDbError } from "@/lib/db-errors";
 import { statusLabel } from "@/lib/format";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -15,8 +16,8 @@ type ActionResult = { ok: true } | { ok: false; error: string };
 function fail(err: unknown): { ok: false; error: string } {
   if (err instanceof ZodError) return { ok: false, error: err.issues[0]?.message ?? "Ошибка валидации" };
   if (err instanceof ForbiddenError || err instanceof HttpError) return { ok: false, error: err.message };
-  if (err instanceof Error) return { ok: false, error: err.message };
-  return { ok: false, error: "Неизвестная ошибка" };
+  console.error("[order] action failed:", err);
+  return { ok: false, error: userFacingDbError(err, "Не удалось изменить статус заказа") };
 }
 
 import { ORDER_TRANSITIONS, RESTOCK_ON_CANCEL_FROM } from "@/lib/order-transitions";

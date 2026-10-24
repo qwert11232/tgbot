@@ -13,6 +13,7 @@ const suites = [
   ["smoke (API)", "node", ["tests/smoke.mjs"]],
   ["admin (UI/actions/RBAC)", "node", ["tests/admin.mjs"]],
   ["concurrency (гонки)", "node", ["tests/concurrency.mjs"]],
+  ["regressions (исправленные дефекты)", "node", ["tests/regressions.mjs"]],
 ];
 
 let failed = 0;

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle } from "lucide-react";
-import { useCartDetails } from "@/app/app/cart/page";
+import { useCartDetails } from "@/components/miniapp/use-cart-details";
 import { clearCart } from "@/components/miniapp/cart-store";
 import { useTelegram } from "@/components/miniapp/telegram-provider";
 import { formatPrice } from "@/lib/format";
@@ -16,28 +16,33 @@ const ORDER_KEY_STORAGE = "gorn_order_key";
  * перезагрузку/повторный сабмит: повтор с ТЕМ ЖЕ содержимым вернёт тот же
  * заказ, с ДРУГИМ — сервер ответит 409 idempotency_conflict, тогда ключ
  * перевыпускается (иначе покупатель не смог бы изменить заказ).
+ *
+ * Оплата: если окно Telegram не открылось или покупатель его закрыл, заказ
+ * остаётся в «Мои заказы» с кнопкой «Оплатить» (POST /api/orders/[id]/invoice),
+ * поэтому корзина очищается сразу после создания заказа — данные не теряются.
  */
 export default function CheckoutPage() {
   const router = useRouter();
-  const { lines, details, total } = useCartDetails();
+  const { lines, total, details, missingCount } = useCartDetails();
   const { apiFetch, token, ready, authError, user, tg } = useTelegram();
 
-  const [customerName, setCustomerName] = useState("");
+  const [nameInput, setNameInput] = useState<string | null>(null);
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (user?.firstName && !customerName) setCustomerName(user.firstName);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  // Имя из Telegram подставляем как значение по умолчанию (без setState в эффекте).
+  const customerName = nameInput ?? user?.firstName ?? "";
 
   if (lines.length === 0) {
     return (
       <div className="flex flex-col items-center px-4 py-24 text-center">
         <p className="font-display text-2xl text-ink">Корзина пуста</p>
+        <p className="mt-2 text-sm text-mute">
+          {missingCount > 0 ? "Товары из корзины больше не продаются." : "Добавьте что-нибудь из каталога."}
+        </p>
         <Link href="/app" className="mt-8 rounded-full bg-ink px-8 py-3 text-sm font-semibold text-paper">
           В каталог
         </Link>
@@ -93,9 +98,12 @@ export default function CheckoutPage() {
         tg.openInvoice(invoiceUrl, (status: string) => {
           router.replace(status === "paid" ? "/app/orders?paid=1" : "/app/orders?created=1");
         });
-      } else {
-        router.replace("/app/orders?created=1");
+        return;
       }
+
+      // Телеграм-клиент недоступен или оплата выключена — заказ сохранён,
+      // оплатить его можно из «Мои заказы».
+      router.replace("/app/orders?created=1");
     } catch {
       setError("Сеть недоступна. Попробуйте ещё раз.");
       setSubmitting(false);
@@ -113,11 +121,18 @@ export default function CheckoutPage() {
         </div>
       )}
 
+      {missingCount > 0 && (
+        <div className="mt-4 flex items-start gap-2 rounded-2xl bg-cream/70 p-3 text-xs leading-relaxed text-mute">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <span>{missingCount} товар(ов) больше не продаётся и не попадёт в заказ.</span>
+        </div>
+      )}
+
       <form onSubmit={submit} className="mt-5 space-y-3">
         <Field label="Имя получателя" required>
           <input
             value={customerName}
-            onChange={(e) => setCustomerName(e.target.value)}
+            onChange={(e) => setNameInput(e.target.value)}
             required
             minLength={2}
             placeholder="Как к вам обращаться"
@@ -173,7 +188,8 @@ export default function CheckoutPage() {
           <span>{formatPrice(total)}</span>
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-mute">
-          Оплата — через Telegram Payments (Stars или картой). После подтверждения заказа бот пришлёт инвойс.
+          Оплата — через Telegram Payments (Stars или картой). Если закроете окно оплаты, заказ останется в «Мои
+          заказы» — оплатить его можно оттуда в течение часа.
         </p>
       </div>
 

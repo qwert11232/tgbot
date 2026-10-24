@@ -7,7 +7,8 @@
 
 - Next.js 16 + TypeScript (фронтенд и API в одном приложении), хостинг — Vercel
 - PostgreSQL на Neon, ORM — Drizzle (neon-serverless Pool + neon-http + retry)
-- Хранилище изображений — Vercel Blob (локально — `public/uploads`)
+- Хранилище изображений — Vercel Blob (локально/self-hosted — `public/uploads`,
+  отдаётся route-обработчиком `/uploads/[...path]`)
 - Покупатели — авторизация через WebApp.initData (HMAC + auth_date)
 - Админка — email+password, собственные сессии (JWT в httpOnly cookie + таблица сессий)
 - Уведомления и оплата — Telegram Bot (webhook) + Telegram Payments (Stars / fiat)
@@ -28,7 +29,8 @@
    `APP_URL`, `ADMIN_SESSION_SECRET` (≥32), `TG_SESSION_SECRET` (≥32),
    `PAYMENT_MODE` (`stars` | `fiat`), при fiat — `PAYMENT_PROVIDER_TOKEN`,
    `PAYMENT_CURRENCY`; опционально `XTR_PRICE_MINOR`, `ADMIN_NOTIFY_CHAT_ID`,
-   `PAYMENT_WEBHOOK_SECRET`. НЕ выставлять `TG_AUTH_DEV_BYPASS`.
+   `PAYMENT_WEBHOOK_SECRET`, `ORDER_TTL_MINUTES` (по умолчанию 60), `CRON_SECRET`.
+   НЕ выставлять `TG_AUTH_DEV_BYPASS`.
 5. **Telegram Bot** (@BotFather): создать бота, включить вебхук с секретом:
    ```
    curl -X POST "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \
@@ -44,6 +46,15 @@
 7. **Внешний эквайринг** (опционально): направить вебхуки провайдера на
    `<APP_URL>/api/webhooks/payment` с заголовком `X-Payment-Signature`
    (HMAC-SHA256 тела ключом `PAYMENT_WEBHOOK_SECRET`).
+8. **Крон автоотмены заказов**: `vercel.json` уже содержит расписание
+   (`/api/cron/expire-orders` каждые 10 минут). Vercel сам присылает
+   `Authorization: Bearer $CRON_SECRET` — достаточно задать `CRON_SECRET` в env.
+   Без крона остатки освобождаются лениво при обращении к каталогу/заказам
+   (не чаще раза в минуту на инстанс), но крон надёжнее.
+   Ручной запуск:
+   ```bash
+   curl -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/expire-orders"
+   ```
 
 ## Локальный запуск
 
@@ -66,11 +77,26 @@ npm run dev
 
 ```bash
 npm run test:unit    # чистые функции, без БД и сети
-npm run test:e2e     # API + админка + гонки (нужны запущенные БД и `npm start`)
-npm run test:bugs    # воспроизведение найденных дефектов
+npm run test:e2e     # API + админка + гонки + регрессии на исправленные дефекты
+                     # (нужны запущенные БД, mock Bot API и `npm start`)
 ```
 
 Подробности — `tests/README.md`; результаты последнего прогона и список дефектов — `../TEST-REPORT.md`.
+
+## Как устроен заказ и оплата
+
+1. `POST /api/orders` — заказ создаётся в `pending_payment`, остатки списываются
+   атомарно, в ответ приходит `invoiceUrl` (Telegram `createInvoiceLink`).
+2. Mini App открывает окно оплаты (`Telegram.WebApp.openInvoice`). Если окно
+   закрыто или недоступно — заказ остаётся в «Мои заказы» с кнопкой «Оплатить»:
+   `POST /api/orders/[id]/invoice` выдаёт ссылку повторно (владельцу, пока не истёк TTL).
+3. `pre_checkout_query` → сверка суммы и валюты → `answerPreCheckoutQuery`.
+4. `successful_payment` → идемпотентная запись в `payment_events` + **повторная
+   сверка суммы**; при несовпадении, оплате отменённого заказа или двойной оплате
+   заказ не помечается оплаченным, а админ получает алерт в `ADMIN_NOTIFY_CHAT_ID`.
+5. Неоплаченный заказ старше `ORDER_TTL_MINUTES` автоотменяется кроном
+   (`/api/cron/expire-orders`), остатки возвращаются на склад, покупатель получает
+   уведомление от бота.
 
 ## Безопасность и деньги — где что лежит
 
@@ -84,5 +110,9 @@ npm run test:bugs    # воспроизведение найденных деф�
 | Идемпотентность платёжных вебхуков | `payment_events`, уникальный индекс `(provider, external_event_id)` |
 | Magic bytes + лимит размера изображений | `src/lib/image-validation.ts`, `src/app/api/admin/upload/route.ts` |
 | citext email | `staff_users.email` + `CREATE EXTENSION citext` |
-| Rate limiting (логин, initData, заказ, загрузки) | `src/lib/rate-limit.ts` (атомарно в БД) |
+| Rate limiting (логин по IP и по email, initData, заказ, инвойсы, загрузки) | `src/lib/rate-limit.ts` (атомарно в БД) |
+| Автоотмена брошенных заказов + возврат остатков | `src/lib/orders/expire.ts`, `/api/cron/expire-orders` |
+| Безопасные сообщения об ошибках БД (без SQL/хешей) | `src/lib/db-errors.ts` |
+| Заголовки безопасности (nosniff, CSP frame-ancestors, HSTS) | `next.config.ts` |
+| Отдача загруженных изображений (в т.ч. в `next start`) | `src/app/uploads/[...path]/route.ts` |
 | Neon: retry при обрыве WS, neon-http для чтений | `src/db/index.ts` (`withDbRetry`, `dbHttp`) |

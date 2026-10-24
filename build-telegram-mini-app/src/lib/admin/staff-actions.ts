@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { staffSessions, staffUsers, type StaffRole } from "@/db/schema";
 import { getAdminActor, assertRole, type AdminActor } from "@/lib/admin-session";
 import { ForbiddenError, HttpError } from "@/lib/http";
+import { isUniqueViolation, userFacingDbError } from "@/lib/db-errors";
 import { hashPassword } from "@/lib/passwords";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -14,11 +15,10 @@ type ActionResult = { ok: true } | { ok: false; error: string };
 function fail(err: unknown): { ok: false; error: string } {
   if (err instanceof ZodError) return { ok: false, error: err.issues[0]?.message ?? "Ошибка валидации" };
   if (err instanceof ForbiddenError || err instanceof HttpError) return { ok: false, error: err.message };
-  if (err instanceof Error) {
-    if (/unique|duplicate/i.test(err.message)) return { ok: false, error: "Такой email уже занят" };
-    return { ok: false, error: err.message };
-  }
-  return { ok: false, error: "Неизвестная ошибка" };
+  if (isUniqueViolation(err)) return { ok: false, error: "Сотрудник с таким email уже существует" };
+  // Сообщения БД содержат SQL и параметры (в т.ч. хеш пароля) — наружу не отдаём.
+  console.error("[staff] action failed:", err);
+  return { ok: false, error: userFacingDbError(err, "Не удалось выполнить операцию. Попробуйте ещё раз") };
 }
 
 /** Раздел «Сотрудники» — только owner (уровень 3: явная проверка роли в каждом action). */
@@ -136,7 +136,7 @@ export async function deleteStaffAction(targetId: string): Promise<ActionResult>
 
     await db.transaction(async (tx) => {
       const [target] = await tx.select().from(staffUsers).where(eq(staffUsers.id, targetId)).for("update").limit(1);
-      if (!target) return;
+      if (!target) throw new HttpError(404, "Сотрудник не найден");
 
       if (target.role === "owner") {
         const owners = await lockActiveOwners(tx);
@@ -160,10 +160,13 @@ export async function resetStaffPasswordAction(targetId: string, newPassword: st
     const passwordHash = await hashPassword(pw);
 
     await db.transaction(async (tx) => {
-      await tx
+      const updated = await tx
         .update(staffUsers)
         .set({ passwordHash, sessionVersion: sql`${staffUsers.sessionVersion} + 1`, updatedAt: new Date() })
-        .where(eq(staffUsers.id, targetId));
+        .where(eq(staffUsers.id, targetId))
+        .returning({ id: staffUsers.id });
+      // Иначе операция «успешна» для несуществующего сотрудника (дефект P1-10).
+      if (updated.length === 0) throw new HttpError(404, "Сотрудник не найден");
       await revokeSessions(tx, targetId);
     });
 

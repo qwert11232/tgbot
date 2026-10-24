@@ -42,10 +42,32 @@ export function errorResponse(err: unknown): NextResponse {
   return NextResponse.json({ error: "Внутренняя ошибка сервера", code: "internal" }, { status: 500 });
 }
 
+/**
+ * IP клиента для rate limiting.
+ *
+ * X-Forwarded-For легко подделывается клиентом (заголовок просто дописывается
+ * слева), поэтому брать первый элемент нельзя — иначе лимит логина обходится
+ * одной строкой (дефект P1-9). Доверяем только заголовкам, которые
+ * проставляет инфраструктура:
+ *   1. x-vercel-forwarded-for (Vercel, не перезаписывается клиентом);
+ *   2. x-real-ip (nginx/Cloudflare-прокси);
+ *   3. последний элемент x-forwarded-for — адрес, добавленный нашим прокси.
+ * Значение из query/body/cookie не используется никогда.
+ */
 export function getClientIp(headers: Headers): string {
+  const vercel = headers.get("x-vercel-forwarded-for");
+  if (vercel) return vercel.split(",")[0]?.trim() || "unknown";
+
+  const realIp = headers.get("x-real-ip");
+  if (realIp) return realIp.trim() || "unknown";
+
   const fwd = headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0]?.trim() || "unknown";
-  return headers.get("x-real-ip") ?? "unknown";
+  if (fwd) {
+    const parts = fwd.split(",").map((p) => p.trim()).filter(Boolean);
+    const last = parts[parts.length - 1];
+    if (last) return last;
+  }
+  return "unknown";
 }
 
 export async function sha256Hex(input: string): Promise<string> {

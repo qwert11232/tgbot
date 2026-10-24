@@ -17,8 +17,7 @@ interface TgContextValue {
   isTelegram: boolean;
   authError: string | null;
   apiFetch: (path: string, init?: RequestInit) => Promise<Response>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tg: any;
+  tg: TelegramWebAppLike | undefined;
 }
 
 const TgContext = createContext<TgContextValue>({
@@ -33,10 +32,19 @@ const TgContext = createContext<TgContextValue>({
 
 export const useTelegram = () => useContext(TgContext);
 
+/** Минимальное описание Telegram.WebApp, которое реально используется. */
+export interface TelegramWebAppLike {
+  initData?: string;
+  ready?: () => void;
+  expand?: () => void;
+  setHeaderColor?: (color: string) => void;
+  setBackgroundColor?: (color: string) => void;
+  openInvoice?: (url: string, callback?: (status: string) => void) => void;
+}
+
 declare global {
   interface Window {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    Telegram?: { WebApp?: any };
+    Telegram?: { WebApp?: TelegramWebAppLike };
   }
 }
 
@@ -62,8 +70,8 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
       const initData: string = tg?.initData ?? "";
       if (tg) {
         try {
-          tg.ready();
-          tg.expand();
+          tg.ready?.();
+          tg.expand?.();
           tg.setHeaderColor?.("#f6f2eb");
           tg.setBackgroundColor?.("#f6f2eb");
         } catch {

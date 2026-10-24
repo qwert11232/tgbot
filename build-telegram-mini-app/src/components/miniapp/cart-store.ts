@@ -26,16 +26,19 @@ export function setCart(lines: CartLine[]): void {
 }
 
 export function addToCart(id: string, qty = 1, maxStock = 99): void {
+  // Товар без остатка в корзину не попадает: раньше Math.max(1, 0) добавлял 1 шт.
+  if (maxStock <= 0) return;
+  const limit = Math.max(1, maxStock);
   const lines = getCart();
   const existing = lines.find((l) => l.id === id);
-  if (existing) existing.qty = Math.min(Math.max(1, maxStock), existing.qty + qty);
-  else lines.push({ id, qty: Math.min(qty, Math.max(1, maxStock)) });
+  if (existing) existing.qty = Math.min(limit, existing.qty + qty);
+  else lines.push({ id, qty: Math.min(qty, limit) });
   setCart(lines);
 }
 
 export function setLineQty(id: string, qty: number, maxStock = 99): void {
   let lines = getCart();
-  if (qty <= 0) lines = lines.filter((l) => l.id !== id);
+  if (qty <= 0 || maxStock <= 0) lines = lines.filter((l) => l.id !== id);
   else lines = lines.map((l) => (l.id === id ? { ...l, qty: Math.min(Math.max(1, maxStock), qty) } : l));
   setCart(lines);
 }

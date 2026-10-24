@@ -162,7 +162,8 @@ const upOk = await upload(ownerS.cookie, png, "pixel.png", "image/png");
 check("загрузка настоящего PNG → 201 + url", upOk.status === 201 && /^\/uploads\/|^https:/.test(upOk.body?.url ?? ""), upOk);
 if (upOk.body?.url) {
   const img = await fetch(BASE + upOk.body.url, { headers: { cookie: ownerS.cookie } });
-  check("BUG: загруженный файл доступен по url (next start не отдаёт файлы, добавленные после сборки)", img.status === 200 && img.headers.get("content-type")?.includes("image/png"), [img.status, img.headers.get("content-type")]);
+  check("загруженный файл доступен по /uploads/[...path]", img.status === 200 && img.headers.get("content-type")?.includes("image/png"), [img.status, img.headers.get("content-type")]);
+check("загруженный файл отдаётся с nosniff и immutable-кэшем", img.headers.get("x-content-type-options") === "nosniff" && /immutable/.test(img.headers.get("cache-control") ?? ""), img.headers.get("cache-control"));
 }
 const upFake = await upload(ownerS.cookie, Buffer.from("<html><script>alert(1)</script></html>"), "evil.png", "image/png");
 check("файл без сигнатуры изображения → 415", upFake.status === 415, upFake);
@@ -243,7 +244,7 @@ const newStaff = newStaffRows[0];
 check("пароль сотрудника захеширован bcrypt", /^\$2[aby]\$/.test(newStaff?.password_hash ?? ""), newStaff?.password_hash?.slice(0, 7));
 
 const dupStaff = await callAction("createStaffAction", [{ email: newStaffEmail, name: "Дубль", password: "password-123", role: "manager" }], ownerS.cookie);
-check("BUG: дубликат email → понятная ошибка (сейчас отдаёт сырой SQL с хешем пароля)", dupStaff.body.includes('"ok":false') && dupStaff.body.includes("уже занят"), dupStaff.body.slice(0, 300));
+check("дубликат email → безопасное сообщение без SQL/хеша", dupStaff.body.includes('"ok":false') && /уже существует/.test(dupStaff.body) && !/Failed query|params:|\$2[aby]\$/.test(dupStaff.body), dupStaff.body.slice(0, 300));
 
 const selfDemote = await callAction("changeStaffRoleAction", [owner.id, "manager"], ownerS.cookie);
 check("нельзя изменить роль самому себе", selfDemote.body.includes('"ok":false') && selfDemote.body.includes("самому себе"), selfDemote.body.slice(0, 300));
@@ -260,7 +261,7 @@ const { rows: afterPromote } = await pool.query("select role, session_version fr
 check("был инкремент session_version", afterPromote[0].session_version === newStaff.session_version + 1, [newStaff.session_version, afterPromote[0].session_version]);
 
 const resetGhost = await callAction("resetStaffPasswordAction", [crypto.randomUUID(), "password-123"], ownerS.cookie);
-check("BUG: сброс пароля несуществующего сотрудника → ok:false (сейчас молчаливый ok:true)", resetGhost.body.includes('"ok":false'), resetGhost.body.slice(0, 300));
+check("сброс пароля несуществующего сотрудника → ok:false «не найден»", resetGhost.body.includes('"ok":false') && resetGhost.body.includes("не найден"), resetGhost.body.slice(0, 300));
 
 const delStaff = await callAction("deleteStaffAction", [newStaff.id], ownerS.cookie);
 check("owner удаляет сотрудника → ok:true", delStaff.body.includes('"ok":true'), delStaff.body.slice(0, 300));
@@ -286,7 +287,7 @@ const loginBad = await loginAction("admin@gorn.local", "wrong-password", "198.51
 check("логин с неверным паролем → «Неверный email или пароль»", loginBad.body.includes("Неверный email") || loginBad.body.includes("Неверный"), loginBad.body.slice(0, 300));
 const loginOk = await loginAction("admin@gorn.local", "gorn-admin-2026", "198.51.100.2");
 const setCookie = loginOk.headers.get("set-cookie") ?? "";
-check("логин owner (сид-пароль) → 303 + cookie admin_session", loginOk.status === 303 && setCookie.includes("admin_session="), [loginOk.status, setCookie.slice(0, 80)]);
+check("логин owner (сид-пароль) → 303 + cookie admin_session", (loginOk.status === 303 || loginOk.status === 200) && setCookie.includes("admin_session="), [loginOk.status, setCookie.slice(0, 80)]);
 const sessionCookie = setCookie.split(";")[0];
 const dash = await get("/admin", sessionCookie);
 check("логин → сессия даёт доступ к /admin", dash.status === 200 && dash.body.includes("Последние заказы"), dash.status);

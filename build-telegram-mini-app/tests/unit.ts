@@ -2,7 +2,7 @@
 // Запуск: npx tsx tests/unit.ts
 import crypto from "node:crypto";
 import { verifyInitData } from "@/lib/telegram-auth";
-import { starsAmountForMinor, paymentMode, paymentsEnabled } from "@/lib/payments";
+import { starsAmountForMinor, minorPerStar, paymentMode, paymentsEnabled } from "@/lib/payments";
 import { slugify, uniqueSlug } from "@/lib/slug";
 import { detectImageByMagicBytes } from "@/lib/image-validation";
 import { formatPrice, statusLabel } from "@/lib/format";
@@ -59,7 +59,10 @@ check("Stars: минимальная цена 1 звезда", starsAmountForMin
 process.env.XTR_PRICE_MINOR = "1";
 check("Stars: курс 1 коп. → 1 ₽ = 100 звёзд", starsAmountForMinor(100) === 100, starsAmountForMinor(100));
 process.env.XTR_PRICE_MINOR = "abc";
-check("Stars: некорректный XTR_PRICE_MINOR даёт NaN (баг конфигурации)", Number.isNaN(starsAmountForMinor(1000)), starsAmountForMinor(1000));
+check("Stars: некорректный XTR_PRICE_MINOR откатывается на 130 коп.", minorPerStar() === 130, minorPerStar());
+check("Stars: некорректный курс не даёт NaN в сумме", Number.isFinite(starsAmountForMinor(1000)), starsAmountForMinor(1000));
+process.env.XTR_PRICE_MINOR = "-5";
+check("Stars: отрицательный курс → дефолт", minorPerStar() === 130, minorPerStar());
 process.env.XTR_PRICE_MINOR = "0";
 check("Stars: XTR_PRICE_MINOR=0 не приводит к делению на ноль", Number.isFinite(starsAmountForMinor(1000)), starsAmountForMinor(1000));
 if (savedPrice === undefined) delete process.env.XTR_PRICE_MINOR;
