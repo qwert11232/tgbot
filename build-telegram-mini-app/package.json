@@ -6,7 +6,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:push": "drizzle-kit push",
+    "db:seed": "tsx src/db/seed.ts",
+    "test:unit": "tsx tests/unit.ts",
+    "test:e2e": "node tests/run-all.mjs",
+    "test:bugs": "node tests/known-bugs.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",

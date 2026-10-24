@@ -48,17 +48,29 @@
 ## Локальный запуск
 
 ```bash
-npm install
+npm ci
+cp .env.example .env          # заполнить DATABASE_URL и секреты
 createdb app_db || true
 psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS citext;"
-npx drizzle-kit push
-npx tsx src/db/seed.ts        # owner: admin@gorn.local / gorn-admin-2026
+npm run db:push
+ADMIN_PASSWORD='придумайте-свой-пароль' npm run db:seed   # owner из ADMIN_EMAIL
 npm run dev
 ```
 
 - Админка: http://localhost:3000/admin
 - Магазин в браузере (dev-обход TG-авторизации): http://localhost:3000/app
-  (работает только пока `TG_AUTH_DEV_BYPASS=1` И `BOT_TOKEN` пуст)
+  (работает, только если `TG_AUTH_DEV_BYPASS=1`, `NEXT_PUBLIC_TG_DEV_BYPASS=1` **и**
+  `BOT_TOKEN` пуст. `NEXT_PUBLIC_*` встраивается в бандл при сборке — после смены нужен перезапуск dev-сервера)
+
+## Тесты
+
+```bash
+npm run test:unit    # чистые функции, без БД и сети
+npm run test:e2e     # API + админка + гонки (нужны запущенные БД и `npm start`)
+npm run test:bugs    # воспроизведение найденных дефектов
+```
+
+Подробности — `tests/README.md`; результаты последнего прогона и список дефектов — `../TEST-REPORT.md`.
 
 ## Безопасность и деньги — где что лежит
 
