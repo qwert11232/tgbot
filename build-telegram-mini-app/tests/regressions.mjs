@@ -406,6 +406,37 @@ const b1 = await buyer();
     [evilNext.status, evilTarget],
   );
 
+  /* P0-31: cookie сессии админки должна выживать при http и во встроенном окне.
+     Раньше: secure всегда в production (http-деплой терял cookie) и SameSite=lax
+     (в iframe на другом домене cookie не отправлялась) → каждый раздел снова
+     просил пароль. */
+  const loginWithProto = async (proto, ip) => {
+    const f = new FormData();
+    f.set("email", owner.email);
+    f.set("password", "gorn-admin-2026");
+    const res = await fetch(`${BASE}/admin/login`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "next-action": idOf("loginAction"), origin: BASE, "x-real-ip": ip, "x-forwarded-proto": proto },
+      body: await flight.encodeReply([{}, f]),
+    });
+    return (res.headers.getSetCookie?.() ?? [res.headers.get("set-cookie") ?? ""]).join("\n");
+  };
+
+  const cookieHttp = await loginWithProto("http", "10.9.9.11");
+  check(
+    "P0-31: логин по http → cookie без Secure (иначе браузер её выбросит)",
+    cookieHttp.includes("admin_session=") && !/;\s*Secure/i.test(cookieHttp),
+    cookieHttp.slice(0, 200),
+  );
+
+  const cookieHttps = await loginWithProto("https", "10.9.9.12");
+  check(
+    "P0-31: логин по https → cookie с Secure и SameSite",
+    cookieHttps.includes("admin_session=") && /;\s*Secure/i.test(cookieHttps) && /SameSite=/i.test(cookieHttps),
+    cookieHttps.slice(0, 200),
+  );
+
   /* P1-14: авторизованный не видит форму логина */
   const sid2 = crypto.randomUUID();
   await pool.query("insert into staff_sessions (id, user_id, expires_at) values ($1, $2, $3)", [sid2, owner.id, new Date(Date.now() + 3600e3)]);

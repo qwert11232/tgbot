@@ -189,6 +189,13 @@ production-сборке (`next start`).
 
 На Pro-плане достаточно вернуть `*/10 * * * *` в `vercel.json` и удалить workflow.
 
+## Найдено и исправлено после отчёта (эксплуатация)
+
+| № | Дефект | Причина | Исправление | Тест |
+|---|---|---|---|---|
+| P0-31 | При переходе между разделами админки вход слетал — каждый раз просили пароль | `setAdminSessionCookie` ставил `SameSite=lax` всегда и `secure: NODE_ENV === "production"`. Во встроенном окне/iframe на другом домене (превью, порталы) lax-cookie не отправляется, а self-hosted `next start` за http вообще терял Secure-cookie — сессии не было ни там, ни там | Политика вынесена в `src/lib/admin-cookie-policy.ts`: `Secure` по фактическому протоколу (`x-forwarded-proto`), `SameSite` — `lax` по умолчанию и настраивается через `ADMIN_COOKIE_SAMESITE=none` для встраивания; `none` без https откатывается на `lax`. Cookie удаления теперь повторяет атрибуты установки, иначе «Выйти» мог не срабатывать | 8 юнит-проверок `resolveAdminCookiePolicy` + 2 e2e на реальный `Set-Cookie` (http → без Secure, https → Secure+SameSite) |
+| — | Деплой на Vercel Hobby падал: «This cron expression (*/10 * * * *) would run more than once per day» | Hobby разрешает крон не чаще раза в сутки | `vercel.json` → `0 3 * * *`; частый ритм 10 минут вынесен в `.github/workflows/expire-orders.yml`; ленивая автоотмена усилена до 50 заказов за проход | — (конфигурация) |
+
 ## Что осталось в бэклоге
 
 * Пагинация админских списков заказов и «моих заказов» (сейчас 150/50 последних).

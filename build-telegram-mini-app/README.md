@@ -90,6 +90,11 @@ npm run dev
   npm run db:passwd -- admin@gorn.local 'новый-пароль-от-10-символов'
   ```
   Новых сотрудников с ролями owner/manager создаёт owner в разделе «Сотрудники».
+  Если панель открывается во встроенном окне/iframe на другом домене (превью,
+  внутренний портал), задайте `ADMIN_COOKIE_SAMESITE=none`: иначе браузер не
+  отправляет lax-cookie в стороннем контексте и вход «слетает» на каждом разделе.
+  Работает только по https (Secure включается автоматически); по http
+  приложение откатывается на `lax`, чтобы cookie вообще сохранялась.
 - Магазин в браузере (dev-обход TG-авторизации): http://localhost:3000/app
   (работает, только если `TG_AUTH_DEV_BYPASS=1`, `NEXT_PUBLIC_TG_DEV_BYPASS=1` **и**
   `BOT_TOKEN` пуст. `NEXT_PUBLIC_*` встраивается в бандл при сборке — после смены нужен перезапуск dev-сервера)
@@ -132,6 +137,7 @@ npm run test:e2e     # API + админка + гонки + регрессии н
 | Magic bytes + лимит размера изображений | `src/lib/image-validation.ts`, `src/app/api/admin/upload/route.ts` |
 | citext email | `staff_users.email` + `CREATE EXTENSION citext` |
 | Rate limiting (логин по IP и по email, initData, заказ, инвойсы, загрузки) | `src/lib/rate-limit.ts` (атомарно в БД) |
+| Cookie сессии админки: Secure по фактическому протоколу, SameSite настраивается | `src/lib/admin-cookie-policy.ts` |
 | Автоотмена брошенных заказов + возврат остатков | `src/lib/orders/expire.ts`, `/api/cron/expire-orders` |
 | Безопасные сообщения об ошибках БД (без SQL/хешей) | `src/lib/db-errors.ts` |
 | Заголовки безопасности (nosniff, CSP frame-ancestors, HSTS) | `next.config.ts` |

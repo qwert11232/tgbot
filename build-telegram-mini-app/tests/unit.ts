@@ -7,6 +7,7 @@ import { slugify, uniqueSlug } from "@/lib/slug";
 import { detectImageByMagicBytes } from "@/lib/image-validation";
 import { formatPrice, statusLabel } from "@/lib/format";
 import { ORDER_TRANSITIONS, RESTOCK_ON_CANCEL_FROM } from "@/lib/order-transitions";
+import { resolveAdminCookiePolicy } from "@/lib/admin-cookie-policy";
 
 let pass = 0;
 const fails: string[] = [];
@@ -111,6 +112,29 @@ check("граф переходов: все статусы покрыты", allSt
 check("граф переходов: из terminal-статусов нет выходов", ORDER_TRANSITIONS.delivered.length === 0 && ORDER_TRANSITIONS.cancelled.length === 0);
 check("граф переходов: нет перехода в самого себя", allStatuses.every((s) => !ORDER_TRANSITIONS[s as keyof typeof ORDER_TRANSITIONS].includes(s as never)));
 check("возврат остатков: отмена из pending_payment входит в список", RESTOCK_ON_CANCEL_FROM.includes("pending_payment"));
+
+// ------------------------------------------------- cookie сессии админки (P0: «снова просит пароль»)
+// Раньше: secure всегда при NODE_ENV=production (ломается на http) и жёсткий lax
+// (не работает во встроенном окне на другом домене).
+const httpNext = resolveAdminCookiePolicy({ forwardedProto: "http", nodeEnv: "production" });
+check("cookie админки: http + production → без Secure (иначе браузер выбросит)", httpNext.secure === false && httpNext.sameSite === "lax", httpNext);
+
+const httpsNext = resolveAdminCookiePolicy({ forwardedProto: "https", nodeEnv: "production" });
+check("cookie админки: https → Secure", httpsNext.secure === true, httpsNext);
+
+check("cookie админки: заголовок прокси важнее NODE_ENV", resolveAdminCookiePolicy({ forwardedProto: "https", nodeEnv: "development" }).secure === true);
+
+const listProto = resolveAdminCookiePolicy({ forwardedProto: "https, http", nodeEnv: "production" });
+check("cookie админки: список протоколов из x-forwarded-proto", listProto.secure === true, listProto);
+
+const embedded = resolveAdminCookiePolicy({ forwardedProto: "https", override: "none" });
+check("cookie админки: ADMIN_COOKIE_SAMESITE=none → SameSite=none + Secure", embedded.sameSite === "none" && embedded.secure === true, embedded);
+
+const embeddedHttp = resolveAdminCookiePolicy({ forwardedProto: "http", override: "none" });
+check("cookie админки: none на http откатывается на lax (иначе cookie теряется)", embeddedHttp.sameSite === "lax" && embeddedHttp.secure === false, embeddedHttp);
+
+check("cookie админки: strict из env", resolveAdminCookiePolicy({ forwardedProto: "https", override: "strict" }).sameSite === "strict");
+check("cookie админки: мусор в env → lax", resolveAdminCookiePolicy({ forwardedProto: "https", override: "weird" }).sameSite === "lax");
 
 console.log(`\nИТОГО: PASS=${pass}, FAIL=${fails.length}`);
 if (fails.length) process.exitCode = 1;
