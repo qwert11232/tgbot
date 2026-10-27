@@ -16,6 +16,7 @@ import { signAdminSessionJwt } from "@/lib/admin-jwt";
 import { verifyPasswordOrDummy } from "@/lib/passwords";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/http";
+import { checkAdminLoginConfig, describeLoginFailure, isNextRedirect } from "@/lib/admin-login-errors";
 
 const loginSchema = z.object({
   email: z.email().max(200),
@@ -44,33 +45,51 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   });
   if (!parsed.success) return { error: "Введите корректные email и пароль" };
 
-  // Rate limit: 8 попыток / 10 минут — и на IP, и на email.
-  // Лимит только по IP обходится подменой X-Forwarded-For (дефект P1-9),
-  // поэтому вторая «ось» привязана к аккаунту и от заголовков не зависит.
-  const emailKey = parsed.data.email.trim().toLowerCase();
-  const [byIp, byEmail] = await Promise.all([
-    rateLimit(`admin-login:ip:${ip}`, RATE_LIMITS.adminLogin.limit, RATE_LIMITS.adminLogin.windowSec),
-    rateLimit(`admin-login:email:${emailKey}`, RATE_LIMITS.adminLogin.limit, RATE_LIMITS.adminLogin.windowSec),
-  ]);
-  const rl = !byIp.ok ? byIp : byEmail;
-  if (!rl.ok) return { error: `Слишком много попыток. Повторите через ${rl.retryAfterSec} с.` };
+  // Конфигурация проверяется ДО обращения к БД: иначе короткий
+  // ADMIN_SESSION_SECRET или пустой DATABASE_URL приводили к падению экшена
+  // и странице «This page couldn't load» вместо понятного сообщения.
+  const configIssues = checkAdminLoginConfig(process.env, process.env.NODE_ENV);
+  if (configIssues.length > 0) {
+    const first = configIssues[0];
+    console.error(`[admin-login] конфигурация: ${configIssues.map((i) => i.code).join(", ")}`);
+    return { error: `${first.message} ${first.hint}` };
+  }
 
-  const [user] = await db.select().from(staffUsers).where(eq(staffUsers.email, parsed.data.email)).limit(1);
-  // Сравнение с dummy-хэшом при отсутствии пользователя — выравниваем тайминг (анти user-enumeration).
-  const passwordOk = await verifyPasswordOrDummy(parsed.data.password, user?.passwordHash ?? null);
-  if (!user || !passwordOk) return { error: "Неверный email или пароль" };
-  if (!user.isActive) return { error: "Учётная запись деактивирована" };
+  try {
+    // Rate limit: 8 попыток / 10 минут — и на IP, и на email.
+    // Лимит только по IP обходится подменой X-Forwarded-For (дефект P1-9),
+    // поэтому вторая «ось» привязана к аккаунту и от заголовков не зависит.
+    const emailKey = parsed.data.email.trim().toLowerCase();
+    const [byIp, byEmail] = await Promise.all([
+      rateLimit(`admin-login:ip:${ip}`, RATE_LIMITS.adminLogin.limit, RATE_LIMITS.adminLogin.windowSec),
+      rateLimit(`admin-login:email:${emailKey}`, RATE_LIMITS.adminLogin.limit, RATE_LIMITS.adminLogin.windowSec),
+    ]);
+    const rl = !byIp.ok ? byIp : byEmail;
+    if (!rl.ok) return { error: `Слишком много попыток. Повторите через ${rl.retryAfterSec} с.` };
 
-  const expiresAt = new Date(Date.now() + ADMIN_SESSION_TTL_SEC * 1000);
-  const [session] = await db
-    .insert(staffSessions)
-    .values({ userId: user.id, expiresAt, ip, userAgent: h.get("user-agent") ?? null })
-    .returning();
+    const [user] = await db.select().from(staffUsers).where(eq(staffUsers.email, parsed.data.email)).limit(1);
+    // Сравнение с dummy-хэшом при отсутствии пользователя — выравниваем тайминг (анти user-enumeration).
+    const passwordOk = await verifyPasswordOrDummy(parsed.data.password, user?.passwordHash ?? null);
+    if (!user || !passwordOk) return { error: "Неверный email или пароль" };
+    if (!user.isActive) return { error: "Учётная запись деактивирована" };
 
-  const token = await signAdminSessionJwt({ sid: session.id, sub: user.id, sv: user.sessionVersion });
-  await setAdminSessionCookie(token);
-  // proxy.ts кладёт исходный путь в ?next= — раньше он терялся (дефект P1-13).
-  redirect(safeNextPath(formData.get("next")));
+    const expiresAt = new Date(Date.now() + ADMIN_SESSION_TTL_SEC * 1000);
+    const [session] = await db
+      .insert(staffSessions)
+      .values({ userId: user.id, expiresAt, ip, userAgent: h.get("user-agent") ?? null })
+      .returning();
+
+    const token = await signAdminSessionJwt({ sid: session.id, sub: user.id, sv: user.sessionVersion });
+    await setAdminSessionCookie(token);
+    // proxy.ts кладёт исходный путь в ?next= — раньше он терялся (дефект P1-13).
+    redirect(safeNextPath(formData.get("next")));
+  } catch (err) {
+    // redirect() бросает NEXT_REDIRECT — его нельзя перехватывать.
+    if (isNextRedirect(err)) throw err;
+    const failure = describeLoginFailure(err);
+    console.error(`[admin-login] ${failure.code}:`, err);
+    return { error: `${failure.message} ${failure.hint}` };
+  }
 }
 
 export async function logoutAction(): Promise<void> {

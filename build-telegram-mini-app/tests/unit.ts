@@ -8,6 +8,7 @@ import { detectImageByMagicBytes } from "@/lib/image-validation";
 import { formatPrice, statusLabel } from "@/lib/format";
 import { ORDER_TRANSITIONS, RESTOCK_ON_CANCEL_FROM } from "@/lib/order-transitions";
 import { resolveAdminCookiePolicy } from "@/lib/admin-cookie-policy";
+import { checkAdminLoginConfig, describeLoginFailure, isNextRedirect } from "@/lib/admin-login-errors";
 
 let pass = 0;
 const fails: string[] = [];
@@ -135,6 +136,38 @@ check("cookie админки: none на http откатывается на lax (
 
 check("cookie админки: strict из env", resolveAdminCookiePolicy({ forwardedProto: "https", override: "strict" }).sameSite === "strict");
 check("cookie админки: мусор в env → lax", resolveAdminCookiePolicy({ forwardedProto: "https", override: "weird" }).sameSite === "lax");
+
+
+// ---------------------------------------- вход в админку: понятные ошибки (не 500)
+const cfgNoDb = checkAdminLoginConfig({ ADMIN_SESSION_SECRET: "x".repeat(32) }, "production");
+check("логин: нет DATABASE_URL → issue database_url_missing", cfgNoDb.some((i) => i.code === "database_url_missing"), cfgNoDb);
+
+const cfgShortSecret = checkAdminLoginConfig({ DATABASE_URL: "postgres://x", ADMIN_SESSION_SECRET: "short" }, "production");
+check("логин: короткий ADMIN_SESSION_SECRET → issue с длиной", cfgShortSecret.some((i) => i.code === "admin_session_secret_too_short"), cfgShortSecret);
+
+check("логин: секрет ровно 32 символа → конфигурация в порядке",
+  checkAdminLoginConfig({ DATABASE_URL: "postgres://x", ADMIN_SESSION_SECRET: "y".repeat(32) }, "production").length === 0);
+
+const cfgDev = checkAdminLoginConfig({ DATABASE_URL: "postgres://x" }, "development");
+check("логин: dev без секрета → предупреждение, но не блокирует", cfgDev.some((i) => i.code === "admin_session_secret_missing"));
+
+const wrapped = new Error("Failed query: select 1");
+(wrapped as { cause?: unknown }).cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:5432"), { code: "ECONNREFUSED" });
+check("ошибка входа: ECONNREFUSED внутри cause → db_unreachable", describeLoginFailure(wrapped).code === "db_unreachable", describeLoginFailure(wrapped));
+
+const noTable = Object.assign(new Error('relation "staff_users" does not exist'), { code: "42P01" });
+check("ошибка входа: 42P01 → db_schema_missing", describeLoginFailure(noTable).code === "db_schema_missing", describeLoginFailure(noTable));
+
+const badAuth = Object.assign(new Error("password authentication failed for user \"postgres\""), { code: "28P01" });
+check("ошибка входа: 28P01 → db_auth_failed", describeLoginFailure(badAuth).code === "db_auth_failed", describeLoginFailure(badAuth));
+
+check("ошибка входа: неизвестная ошибка → unknown с подсказкой", describeLoginFailure(new Error("boom")).code === "unknown");
+check("ошибка входа: у каждого ответа есть текст и подсказка",
+  [describeLoginFailure(wrapped), describeLoginFailure(noTable), describeLoginFailure(new Error("x"))].every((f) => f.message.length > 10 && f.hint.length > 10));
+
+check("redirect не глотается: NEXT_REDIRECT распознаётся", isNextRedirect({ digest: "NEXT_REDIRECT;replace;/admin;303;" }) === true);
+check("redirect не глотается: обычная ошибка — false", isNextRedirect(new Error("boom")) === false);
+check("redirect не глотается: null безопасен", isNextRedirect(null) === false);
 
 console.log(`\nИТОГО: PASS=${pass}, FAIL=${fails.length}`);
 if (fails.length) process.exitCode = 1;

@@ -20,7 +20,14 @@ export default async function AdminLoginPage({
   searchParams: Promise<{ next?: string }>;
 }) {
   // Уже авторизованного сотрудника не заставляем смотреть на форму логина.
-  const actor = await getAdminActor();
+  // Если БД недоступна, проверка сессии бросит — но форма должна открыться,
+  // а понятное сообщение появится уже при попытке входа.
+  let actor = null;
+  try {
+    actor = await getAdminActor();
+  } catch (err) {
+    console.error("[admin/login] не удалось проверить сессию:", err);
+  }
   if (actor) redirect("/admin");
 
   const sp = await searchParams;

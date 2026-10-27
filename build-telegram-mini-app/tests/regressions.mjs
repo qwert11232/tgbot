@@ -449,6 +449,48 @@ const b1 = await buyer();
   check("P1-14: /admin/login с активной сессией → редирект на /admin", loginPage.status === 307 || loginPage.status === 308, loginPage.status);
 }
 
+/* ─────────── P0-32: /api/health и понятные ошибки входа ─────────── */
+{
+  const actionManifest = JSON.parse(
+    readFileSync(process.env.ACTION_MANIFEST ?? ".next/server/server-reference-manifest.json", "utf8"),
+  );
+  const actionId = (name) => Object.entries(actionManifest.node).find(([, v]) => v.exportedName === name)[0];
+  const health = await fetch(`${BASE}/api/health`);
+  const healthBody = await health.json();
+  check(
+    "P0-32: /api/health отвечает 200 и ok:true на исправном стенде",
+    health.status === 200 && healthBody.ok === true,
+    [health.status, JSON.stringify(healthBody).slice(0, 200)],
+  );
+  const names = (healthBody.checks ?? []).map((c) => c.name);
+  check(
+    "P0-32: health проверяет конфигурацию, БД и наличие владельца",
+    ["env:DATABASE_URL", "env:ADMIN_SESSION_SECRET", "db:connection", "db:schema", "db:owner_exists"].every((n) => names.includes(n)),
+    names,
+  );
+  const raw = JSON.stringify(healthBody);
+  check(
+    "P0-32: health не раскрывает значения секретов",
+    !raw.includes(process.env.ADMIN_SESSION_SECRET ?? "@@none@@") && !raw.includes(process.env.DATABASE_URL ?? "@@none@@"),
+  );
+
+  // Ошибка конфигурации не должна превращаться в страницу «This page couldn't load»:
+  // экшен обязан вернуть текст ошибки (200 + поле error в RSC-ответе).
+  const fdBroken = new FormData();
+  fdBroken.set("email", "admin@gorn.local");
+  fdBroken.set("password", "definitely-wrong-password");
+  const badLogin = await fetch(`${BASE}/admin/login`, {
+    method: "POST",
+    redirect: "manual",
+    headers: { "next-action": actionId("loginAction"), origin: BASE, "x-real-ip": "10.9.9.77" },
+    body: await flight.encodeReply([{}, fdBroken]),
+  });
+  check(
+    "P0-32: неверный пароль — ответ 200 с текстом, а не 500",
+    badLogin.status === 200 && (await badLogin.text()).includes("Неверный"),
+  );
+}
+
 /* ─────────── P0-4 / P0-5: картинки ─────────── */
 {
   const seed = await fetch(`${BASE}/seed/mug-dune.png`);
