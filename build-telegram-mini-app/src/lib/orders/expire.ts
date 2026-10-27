@@ -123,7 +123,7 @@ export async function maybeExpireStaleOrders(minIntervalMs = 60_000): Promise<vo
   if (now - lastLazyRun < minIntervalMs) return;
   lastLazyRun = now;
   try {
-    const res = await expireStaleOrders(20);
+    const res = await expireStaleOrders(50);
     if (res.cancelled > 0) {
       console.log(`[orders] автоотмена: ${res.cancelled} заказ(ов) — ${res.orderNumbers.join(", ")}`);
     }

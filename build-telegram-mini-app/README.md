@@ -7,6 +7,7 @@
 
 - Next.js 16 + TypeScript (фронтенд и API в одном приложении), хостинг — Vercel
 - PostgreSQL на Neon, ORM — Drizzle (neon-serverless Pool + neon-http + retry)
+- Крон — Vercel Cron (Hobby: раз в сутки) + GitHub Actions на 10 минут
 - Хранилище изображений — Vercel Blob (локально/self-hosted — `public/uploads`,
   отдаётся route-обработчиком `/uploads/[...path]`)
 - Покупатели — авторизация через WebApp.initData (HMAC + auth_date)
@@ -46,11 +47,22 @@
 7. **Внешний эквайринг** (опционально): направить вебхуки провайдера на
    `<APP_URL>/api/webhooks/payment` с заголовком `X-Payment-Signature`
    (HMAC-SHA256 тела ключом `PAYMENT_WEBHOOK_SECRET`).
-8. **Крон автоотмены заказов**: `vercel.json` уже содержит расписание
-   (`/api/cron/expire-orders` каждые 10 минут). Vercel сам присылает
+8. **Крон автоотмены заказов**. На тарифе **Hobby** Vercel разрешает крон-задачи
+   не чаще **раза в сутки** и не более двух задач, поэтому `vercel.json` содержит
+   суточный запуск `0 3 * * *` (03:00 UTC ≈ 06:00 МСК). Vercel сам присылает
    `Authorization: Bearer $CRON_SECRET` — достаточно задать `CRON_SECRET` в env.
-   Без крона остатки освобождаются лениво при обращении к каталогу/заказам
-   (не чаще раза в минуту на инстанс), но крон надёжнее.
+
+   Частый ритм (10 минут), который нужен магазину, даёт бесплатный
+   `.github/workflows/expire-orders.yml`:
+   * Variables → `APP_URL` = адрес деплоя (без слэша на конце);
+   * Secrets → `CRON_SECRET` = то же значение, что в env Vercel.
+   Пока `APP_URL` не задан, workflow молчит (не падает по расписанию).
+   На Pro-плане можно вместо этого вернуть `"schedule": "*/10 * * * *"`
+   в `vercel.json` и удалить workflow.
+
+   Дополнительная страховка: остатки освобождаются лениво при обращении к каталогу
+   и списку заказов (не чаще раза в минуту на инстанс, до 50 заказов за проход),
+   поэтому просроченный заказ не «съедает» товар надолго даже без крона.
    Ручной запуск:
    ```bash
    curl -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/expire-orders"

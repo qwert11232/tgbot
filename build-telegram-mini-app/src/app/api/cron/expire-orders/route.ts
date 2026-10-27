@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 /**
  * Крон автоотмены неоплаченных заказов с возвратом остатков.
  *
- * Вызывается по расписанию (vercel.json → crons, каждые 10 минут) или вручную:
+ * Вызывается по расписанию (vercel.json → crons: раз в сутки, т.к. на Vercel
+ * Hobby чаще нельзя; частый ритм 10 минут — .github/workflows/expire-orders.yml)
+ * или вручную:
  *   curl -H "Authorization: Bearer $CRON_SECRET" https://app/api/cron/expire-orders
  * Защита: CRON_SECRET (Vercel присылает его в Authorization автоматически).
  * Если CRON_SECRET не задан, ручка доступна только вне production — чтобы

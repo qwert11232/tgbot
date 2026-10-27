@@ -110,7 +110,7 @@ node tests/known-bugs.mjs           # воспроизведение найде�
 
 | № | Что сделано | Файлы | Тест |
 |---|---|---|---|
-| 1 | Автоотмена неоплаченных заказов с возвратом остатков: транзакция с `FOR UPDATE SKIP LOCKED`, TTL из `ORDER_TTL_MINUTES` (60 мин), уведомление покупателю от бота. Триггеры: крон `/api/cron/expire-orders` (`vercel.json`, каждые 10 мин, защищён `CRON_SECRET`) и ленивый вызов из `GET /api/catalog` / `GET /api/orders` (не чаще раза в минуту) | `src/lib/orders/expire.ts`, `src/app/api/cron/expire-orders/route.ts`, `vercel.json` | «P0-1: крон автоотмены отрабатывает», «остаток вернулся на склад», «крон идемпотентен» |
+| 1 | Автоотмена неоплаченных заказов с возвратом остатков: транзакция с `FOR UPDATE SKIP LOCKED`, TTL из `ORDER_TTL_MINUTES` (60 мин), уведомление покупателю от бота. Триггеры: крон `/api/cron/expire-orders` (`vercel.json` — раз в сутки, лимит Vercel Hobby; 10-минутный ритм — GitHub Actions workflow, защищён `CRON_SECRET`) и ленивый вызов из `GET /api/catalog` / `GET /api/orders` (не чаще раза в минуту, до 50 заказов за проход) | `src/lib/orders/expire.ts`, `src/app/api/cron/expire-orders/route.ts`, `vercel.json` | «P0-1: крон автоотмены отрабатывает», «остаток вернулся на склад», «крон идемпотентен» |
 | 2 | `successful_payment` теперь сверяет сумму и валюту с ожидаемым инвойсом и **не** помечает заказ оплаченным при расхождении; админ получает алерт, событие сохраняется в `payment_events` | `src/app/api/webhooks/telegram/route.ts` | «P0-2: платёж с неверной суммой не помечает заказ оплаченным», «админ получил алерт» |
 | 3 | Повторная оплата: `POST /api/orders/[id]/invoice` (только владелец, только `pending_payment`, до истечения TTL), в списке заказов появились `expiresAt`/`payable`, на странице «Мои заказы» — кнопка «Оплатить» и таймер. Корзина очищается после создания заказа безопасно, т.к. заказ не теряется | `src/app/api/orders/[id]/invoice/route.ts`, `src/app/app/orders/page.tsx`, `src/app/api/orders/route.ts` | «P0-3: … отдаёт ссылку на оплату», «чужой заказ оплатить нельзя», «для оплаченного — 409» |
 | 4 | Загруженные изображения отдаются route-обработчиком `/uploads/[...path]` (не зависят от снимка `public` при сборке), с `nosniff`, immutable-кэшем и защитой от path traversal. На serverless без `BLOB_READ_WRITE_TOKEN` — честная ошибка 503 вместо тихой потери файла | `src/app/uploads/[...path]/route.ts`, `src/lib/storage.ts` | «загруженный файл доступен по /uploads/[...path]», «/uploads защищён от path traversal» |
@@ -171,6 +171,23 @@ DATABASE_URL=...migrate_test ADMIN_PASSWORD=... npx tsx src/db/seed.ts  # ✓ ow
 `npx tsc --noEmit` и `npx eslint .` — без ошибок и предупреждений. Все страницы
 (/, /app, /app/cart, /app/checkout, /app/orders, /admin/login) отвечают 200 на
 production-сборке (`next start`).
+
+## Ограничение тарифа Vercel Hobby (крон)
+
+Исходное расписание `*/10 * * * *` не принимается на Hobby: план разрешает
+крон-задачи **не чаще раза в сутки** (и не более двух задач), деплой падает с
+ошибкой «This cron expression would run more than once per day».
+
+Сделано:
+
+* `vercel.json` → `"schedule": "0 3 * * *"` (суточный страховочный запуск, 03:00 UTC);
+* `.github/workflows/expire-orders.yml` → запуск каждые 10 минут бесплатно, через
+  `workflow_dispatch` можно дёрнуть вручную; активируется переменными
+  `APP_URL` (Variables) и `CRON_SECRET` (Secrets), без них молчит;
+* ленивая очистка в `GET /api/catalog` / `GET /api/orders` усилена (до 50 заказов
+  за проход) — просроченные заказы не «съедают» остатки даже без частого крона.
+
+На Pro-плане достаточно вернуть `*/10 * * * *` в `vercel.json` и удалить workflow.
 
 ## Что осталось в бэклоге
 
