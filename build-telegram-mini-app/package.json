@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx src/db/seed.ts",
+    "db:passwd": "tsx src/db/set-password.ts",
     "test:unit": "tsx tests/unit.ts",
     "test:e2e": "node tests/run-all.mjs"
   },

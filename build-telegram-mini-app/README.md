@@ -80,7 +80,16 @@ ADMIN_PASSWORD='придумайте-свой-пароль' npm run db:seed   # 
 npm run dev
 ```
 
-- Админка: http://localhost:3000/admin
+- Админка: http://localhost:3000/admin — вход по email+паролю сотрудника.
+  После `npm run db:seed` создаётся owner:
+  * `ADMIN_EMAIL` (по умолчанию `admin@gorn.local`);
+  * `ADMIN_PASSWORD`, если задан при сиде; **если не задан — пароль по умолчанию
+    `gorn-admin-2026`**, его нужно сменить сразу после первого входа.
+  Забыли пароль / нужно сменить из консоли (сессии при этом сбрасываются):
+  ```bash
+  npm run db:passwd -- admin@gorn.local 'новый-пароль-от-10-символов'
+  ```
+  Новых сотрудников с ролями owner/manager создаёт owner в разделе «Сотрудники».
 - Магазин в браузере (dev-обход TG-авторизации): http://localhost:3000/app
   (работает, только если `TG_AUTH_DEV_BYPASS=1`, `NEXT_PUBLIC_TG_DEV_BYPASS=1` **и**
   `BOT_TOKEN` пуст. `NEXT_PUBLIC_*` встраивается в бандл при сборке — после смены нужен перезапуск dev-сервера)
