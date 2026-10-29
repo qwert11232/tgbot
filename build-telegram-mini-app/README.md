@@ -52,8 +52,9 @@
    суточный запуск `0 3 * * *` (03:00 UTC ≈ 06:00 МСК). Vercel сам присылает
    `Authorization: Bearer $CRON_SECRET` — достаточно задать `CRON_SECRET` в env.
 
-   Частый ритм (10 минут), который нужен магазину, даёт бесплатный
-   `.github/workflows/expire-orders.yml`:
+   Частый ритм (10 минут), который нужен магазину, даёт бесплатный workflow
+   `.github/workflows/expire-orders.yml` (лежит **в корне репозитория**, не в
+   `build-telegram-mini-app/` — GitHub читает только `<repo>/.github/workflows`):
    * Variables → `APP_URL` = адрес деплоя (без слэша на конце);
    * Secrets → `CRON_SECRET` = то же значение, что в env Vercel.
    Пока `APP_URL` не задан, workflow молчит (не падает по расписанию).
