@@ -1,3 +1,5 @@
+-- citext нужен для staff_users.email (регистронезависимый email)
+CREATE EXTENSION IF NOT EXISTS citext;--> statement-breakpoint
 CREATE TYPE "public"."order_status" AS ENUM('pending_payment', 'paid', 'processing', 'shipped', 'delivered', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."staff_role" AS ENUM('owner', 'manager');--> statement-breakpoint
 CREATE TABLE "categories" (

@@ -3,12 +3,17 @@ import { and, asc, desc, eq, ilike, inArray } from "drizzle-orm";
 import { dbHttp } from "@/db";
 import { categories, productImages, products } from "@/db/schema";
 import { json, errorResponse } from "@/lib/http";
+import { maybeExpireStaleOrders } from "@/lib/orders/expire";
 
 export const dynamic = "force-dynamic";
 
 /** Публичный каталог Mini App: простые чтения без транзакций — идут через neon-http. */
 export async function GET(req: NextRequest) {
   try {
+    // Ленивая автоотмена брошенных заказов: остатки возвращаются на склад даже
+    // без настроенного крона (throttle внутри — не чаще раза в минуту).
+    await maybeExpireStaleOrders();
+
     const url = new URL(req.url);
     const q = url.searchParams.get("q")?.trim() ?? "";
     const categorySlug = url.searchParams.get("category")?.trim() ?? "";

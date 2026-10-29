@@ -1,61 +1,35 @@
-"use client";
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { getAdminActor } from "@/lib/admin-session";
+import { LoginForm } from "./login-form";
 
-import { useActionState } from "react";
-import { Flame, LogIn } from "lucide-react";
-import { loginAction, type LoginState } from "@/lib/admin/auth-actions";
+export const metadata: Metadata = { title: "Вход — ГОРН" };
+export const dynamic = "force-dynamic";
 
-export default function AdminLoginPage() {
-  const [state, formAction, pending] = useActionState<LoginState, FormData>(loginAction, {});
+/** Куда безопасно возвращать после логина: только внутренние пути админки. */
+function safeNextPath(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  if (!/^\/admin(\/[A-Za-z0-9\-_/]*)?$/.test(raw)) return undefined;
+  if (raw === "/admin/login" || raw.startsWith("/admin/login?")) return undefined;
+  return raw;
+}
 
-  return (
-    <main className="flex min-h-dvh items-center justify-center bg-ink px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <p className="font-display text-4xl text-paper">ГОРН</p>
-          <p className="mt-2 inline-flex items-center gap-1.5 text-xs uppercase tracking-widest text-paper/50">
-            <Flame size={12} className="text-clay" /> панель управления
-          </p>
-        </div>
-        <form action={formAction} className="card-shadow rounded-3xl bg-paper p-7">
-          <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-mute">Email</span>
-            <input
-              name="email"
-              type="email"
-              required
-              autoComplete="username"
-              placeholder="admin@shop.ru"
-              className="w-full rounded-xl border border-line bg-white px-4 py-3 text-sm outline-none focus:border-clay"
-            />
-          </label>
-          <label className="mt-4 block">
-            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-mute">Пароль</span>
-            <input
-              name="password"
-              type="password"
-              required
-              autoComplete="current-password"
-              placeholder="••••••••••"
-              className="w-full rounded-xl border border-line bg-white px-4 py-3 text-sm outline-none focus:border-clay"
-            />
-          </label>
-          {state?.error && (
-            <p className="mt-4 rounded-xl bg-clay/10 px-3.5 py-2.5 text-xs font-medium text-clay-deep">
-              {state.error}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={pending}
-            className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-clay py-3 text-sm font-semibold text-white transition hover:bg-clay-deep disabled:opacity-50"
-          >
-            <LogIn size={16} /> {pending ? "Проверяем…" : "Войти"}
-          </button>
-        </form>
-        <p className="mt-6 text-center text-[11px] text-paper/40">
-          Доступ только для сотрудников. Попытки входа ограничены (8 / 10 мин на IP).
-        </p>
-      </div>
-    </main>
-  );
+export default async function AdminLoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  // Уже авторизованного сотрудника не заставляем смотреть на форму логина.
+  // Если БД недоступна, проверка сессии бросит — но форма должна открыться,
+  // а понятное сообщение появится уже при попытке входа.
+  let actor = null;
+  try {
+    actor = await getAdminActor();
+  } catch (err) {
+    console.error("[admin/login] не удалось проверить сессию:", err);
+  }
+  if (actor) redirect("/admin");
+
+  const sp = await searchParams;
+  return <LoginForm nextPath={safeNextPath(sp.next)} />;
 }

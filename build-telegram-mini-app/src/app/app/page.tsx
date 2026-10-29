@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Search, ShoppingBag } from "lucide-react";
@@ -30,9 +30,15 @@ export default function CatalogPage() {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { count } = useCart();
 
+  // Номер последнего запроса: ответ на устаревший (медленный) запрос не должен
+  // перетирать результаты нового поиска (дефект P2-17).
+  const requestRef = useRef(0);
+
   const load = useCallback(async (reset: boolean, offset: number, query: string, cat: string) => {
+    const requestId = ++requestRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -40,12 +46,18 @@ export default function CatalogPage() {
       if (cat) params.set("category", cat);
       params.set("offset", String(offset));
       const res = await fetch(`/api/catalog?${params.toString()}`);
+      if (requestId !== requestRef.current) return;
+      if (!res.ok) throw new Error("Не удалось загрузить каталог");
       const data = await res.json();
       setCategories(data.categories ?? []);
       setNextOffset(data.nextOffset ?? null);
       setProducts((prev) => (reset ? (data.products ?? []) : [...prev, ...(data.products ?? [])]));
+      setError(null);
+    } catch (err) {
+      if (requestId !== requestRef.current) return;
+      setError(err instanceof Error ? err.message : "Не удалось загрузить каталог");
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
     }
   }, []);
 
@@ -108,6 +120,12 @@ export default function CatalogPage() {
           </div>
         ))}
       </div>
+
+      {error && !loading && (
+        <p className="px-4 py-8 text-center text-sm text-clay-deep">
+          {error}. <button onClick={() => void load(true, 0, q, category)} className="underline underline-offset-4">Повторить</button>
+        </p>
+      )}
 
       {loading && (
         <div className="mt-4 grid grid-cols-2 gap-3 px-4">

@@ -13,6 +13,7 @@ export interface RateLimitResult {
  * (доступность важнее; ошибка логируется).
  */
 export async function rateLimit(key: string, limit: number, windowSec: number): Promise<RateLimitResult> {
+  void maybeCleanup();
   try {
     const res = await db.execute(sql`
       INSERT INTO rate_limits (key, count, window_start)
@@ -44,5 +45,30 @@ export const RATE_LIMITS = {
   adminLogin: { limit: 8, windowSec: 600 },
   tgAuth: { limit: 20, windowSec: 300 },
   orderCreate: { limit: 10, windowSec: 600 },
+  invoice: { limit: 20, windowSec: 600 },
   adminUpload: { limit: 30, windowSec: 600 },
 } as const;
+
+/**
+ * Чистка устаревших счётчиков: без неё таблица rate_limits растёт бесконечно
+ * (дефект P2-25). «Замок» — строка __cleanup__ в той же таблице: атомарно и
+ * одинаково для всех инстансов (in-memory флаг на serverless не работает).
+ * Чистка идёт не чаще раза в 10 минут и не мешает основной операции.
+ */
+const CLEANUP_KEY = "__cleanup__";
+async function maybeCleanup(): Promise<void> {
+  try {
+    const res = await db.execute(sql`
+      INSERT INTO rate_limits (key, count, window_start)
+      VALUES (${CLEANUP_KEY}, 1, now())
+      ON CONFLICT (key) DO UPDATE SET count = 1, window_start = now()
+      WHERE rate_limits.window_start < now() - interval '10 minutes'
+      RETURNING key
+    `);
+    if (queryRows(res).length === 0) return; // замок занят другим инстансом
+    await db.execute(sql`DELETE FROM rate_limits WHERE window_start < now() - interval '1 day' AND key <> ${CLEANUP_KEY}`);
+    await db.execute(sql`DELETE FROM rate_limits WHERE key = ${CLEANUP_KEY} AND window_start < now() - interval '1 day'`);
+  } catch (err) {
+    console.error("[rate-limit] cleanup failed:", err);
+  }
+}

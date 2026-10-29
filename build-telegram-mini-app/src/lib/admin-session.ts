@@ -1,10 +1,11 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { staffSessions, staffUsers, type StaffRole } from "@/db/schema";
 import { ForbiddenError } from "@/lib/http";
 import { verifyAdminSessionJwt, ADMIN_COOKIE, ADMIN_SESSION_TTL_SEC } from "@/lib/admin-jwt";
+import { resolveAdminCookiePolicy, type AdminCookiePolicy } from "@/lib/admin-cookie-policy";
 
 export { ADMIN_COOKIE, ADMIN_SESSION_TTL_SEC } from "@/lib/admin-jwt";
 
@@ -58,12 +59,22 @@ export function assertRole(actor: AdminActor, role: StaffRole): AdminActor {
   return actor;
 }
 
+async function currentCookiePolicy(): Promise<AdminCookiePolicy> {
+  const h = await headers();
+  return resolveAdminCookiePolicy({
+    forwardedProto: h.get("x-forwarded-proto"),
+    nodeEnv: process.env.NODE_ENV,
+    override: process.env.ADMIN_COOKIE_SAMESITE,
+  });
+}
+
 export async function setAdminSessionCookie(token: string): Promise<void> {
   const store = await cookies();
+  const policy = await currentCookiePolicy();
   store.set(ADMIN_COOKIE, token, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: policy.sameSite,
+    secure: policy.secure,
     path: "/",
     maxAge: ADMIN_SESSION_TTL_SEC,
   });
@@ -71,5 +82,14 @@ export async function setAdminSessionCookie(token: string): Promise<void> {
 
 export async function clearAdminSessionCookie(): Promise<void> {
   const store = await cookies();
-  store.set(ADMIN_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+  const policy = await currentCookiePolicy();
+  // Атрибуты удаления повторяют атрибуты установки, иначе браузер может
+  // оставить cookie и «выход» не сработает.
+  store.set(ADMIN_COOKIE, "", {
+    httpOnly: true,
+    sameSite: policy.sameSite,
+    secure: policy.secure,
+    path: "/",
+    maxAge: 0,
+  });
 }

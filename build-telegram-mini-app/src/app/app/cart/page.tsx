@@ -1,58 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Minus, Plus, Trash2 } from "lucide-react";
-import { clearCart, setLineQty, useCart } from "@/components/miniapp/cart-store";
+import { clearCart, setLineQty } from "@/components/miniapp/cart-store";
+import { useCartDetails } from "@/components/miniapp/use-cart-details";
 import { formatPrice } from "@/lib/format";
-
-export interface ProductBrief {
-  id: string;
-  name: string;
-  priceMinor: number;
-  stock: number;
-  imageUrl: string | null;
-}
-
-export function useCartDetails() {
-  const { lines, count } = useCart();
-  const [details, setDetails] = useState<ProductBrief[] | null>(null);
-  const idsKey = useMemo(() => lines.map((l) => l.id).sort().join(","), [lines]);
-
-  useEffect(() => {
-    if (!idsKey) {
-      setDetails([]);
-      return;
-    }
-    let cancelled = false;
-    fetch(`/api/catalog?ids=${idsKey}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (!cancelled) setDetails(d.products ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setDetails([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [idsKey]);
-
-  const detailById = useMemo(() => new Map((details ?? []).map((d) => [d.id, d])), [details]);
-  const total = lines.reduce((sum, l) => sum + (detailById.get(l.id)?.priceMinor ?? 0) * l.qty, 0);
-  return { lines, count, details, detailById, total };
-}
 
 export default function CartPage() {
   const router = useRouter();
-  const { lines, details, detailById, total } = useCartDetails();
+  const { lines, details, detailById, total, missingCount } = useCartDetails();
 
   if (lines.length === 0) {
     return (
       <div className="flex flex-col items-center px-4 py-24 text-center">
         <p className="font-display text-2xl text-ink">Корзина пуста</p>
-        <p className="mt-2 text-sm text-mute">Загляните в каталог — там живая глина.</p>
+        <p className="mt-2 text-sm text-mute">
+          {missingCount > 0 ? "Товары из корзины больше не продаются." : "Загляните в каталог — там живая глина."}
+        </p>
         <Link href="/app" className="mt-8 rounded-full bg-ink px-8 py-3 text-sm font-semibold text-paper">
           В каталог
         </Link>
@@ -63,6 +28,13 @@ export default function CartPage() {
   return (
     <div className="pb-32">
       <h1 className="font-display px-4 pt-5 text-2xl text-ink">Корзина</h1>
+
+      {missingCount > 0 && (
+        <p className="mx-4 mt-3 rounded-2xl bg-cream/70 px-4 py-3 text-xs leading-relaxed text-mute">
+          {missingCount} товар(ов) больше не продаётся и не попадёт в заказ.
+        </p>
+      )}
+
       <div className="mt-4 space-y-3 px-4">
         {lines.map((line) => {
           const d = detailById.get(line.id);
@@ -128,7 +100,8 @@ export default function CartPage() {
       <div className="fixed inset-x-0 bottom-0 z-20 mx-auto w-full max-w-md px-4 pb-4">
         <button
           onClick={() => router.push("/app/checkout")}
-          className="w-full rounded-full bg-clay py-3.5 text-sm font-semibold text-white shadow-lg shadow-clay/30 transition hover:bg-clay-deep"
+          disabled={lines.length === 0}
+          className="w-full rounded-full bg-clay py-3.5 text-sm font-semibold text-white shadow-lg shadow-clay/30 transition enabled:hover:bg-clay-deep disabled:opacity-40"
         >
           Оформить заказ · {formatPrice(total)}
         </button>

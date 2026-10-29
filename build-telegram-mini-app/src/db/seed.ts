@@ -6,6 +6,7 @@ import { hashPassword } from "../lib/passwords";
 
 /**
  * Сид: первый owner (ADMIN_EMAIL/ADMIN_PASSWORD), демо-категории и товары.
+ * Демо-изображения лежат в public/seed (сгенерированные картинки-заглушки).
  * Идемпотентен: повторный запуск не дублирует записи.
  * Запуск: npx tsx src/db/seed.ts
  */
@@ -26,7 +27,7 @@ const DEMO_PRODUCTS = [
       "Кружка ручной работы из светлого шамота с крапчатой кремовой глазурью. Каждая немного отличается по рисунку крапа — это нормально для ручного обжига. Можно в посудомоечную машину и СВЧ.",
     priceMinor: 189000,
     stock: 12,
-    images: ["/seed/mug-dune.jpg"],
+    images: ["/seed/mug-dune.png"],
   },
   {
     name: "Чашка эспрессо «Уголь», 90 мл",
@@ -35,7 +36,7 @@ const DEMO_PRODUCTS = [
     description: "Компактная чашка для эспрессо из тёмной каменной массы. Матовая поверхность, удобная ручка под два пальца.",
     priceMinor: 129000,
     stock: 20,
-    images: ["/seed/espresso.jpg"],
+    images: ["/seed/espresso.png"],
   },
   {
     name: "Ваза «Терра», высота 24 см",
@@ -44,7 +45,7 @@ const DEMO_PRODUCTS = [
     description: "Высокая ваза из терракотовой глины без глазури. Живая фактура гончарного круга. Для сухоцветов и ветвей; для воды — с внутренним колбовидным вкладышем.",
     priceMinor: 349000,
     stock: 6,
-    images: ["/seed/vase-terra.jpg"],
+    images: ["/seed/vase-terra.png"],
   },
   {
     name: "Подсвечники «Пара», набор из двух",
@@ -53,7 +54,7 @@ const DEMO_PRODUCTS = [
     description: "Пара низких подсвечников под тонкие свечи. Молочная глазурь, устойчивое основание. Свечи в комплект не входят.",
     priceMinor: 219000,
     stock: 9,
-    images: ["/seed/candles.jpg"],
+    images: ["/seed/candles.png"],
   },
   {
     name: "Тарелка обеденная «Камень», 26 см",
@@ -62,7 +63,7 @@ const DEMO_PRODUCTS = [
     description: "Обеденная тарелка из каменной керамики с широким матовым бортом. Стекуется, подходит для ежедневного использования.",
     priceMinor: 249000,
     stock: 15,
-    images: ["/seed/plate.jpg"],
+    images: ["/seed/plate.png"],
   },
   {
     name: "Пиала «Лазурь», 400 мл",
@@ -71,7 +72,7 @@ const DEMO_PRODUCTS = [
     description: "Глубокая пиала с плывущей синей глазурью — узор не повторяется. Для супов, боулов и утренней гранолы.",
     priceMinor: 169000,
     stock: 0,
-    images: ["/seed/bowl.jpg"],
+    images: ["/seed/bowl.png"],
   },
 ];
 

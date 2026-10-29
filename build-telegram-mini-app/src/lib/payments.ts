@@ -21,8 +21,18 @@ import { botToken } from "@/lib/telegram-auth";
 
 export type PaymentMode = "stars" | "fiat";
 
+/**
+ * Режим оплаты. Некорректное значение (опечатка в env) раньше молча
+ * превращалось в stars — теперь пишем предупреждение в лог, чтобы ошибка
+ * конфигурации была видна в логах деплоя.
+ */
 export function paymentMode(): PaymentMode {
-  return process.env.PAYMENT_MODE === "fiat" ? "fiat" : "stars";
+  const raw = (process.env.PAYMENT_MODE ?? "").trim().toLowerCase();
+  if (!raw) return "stars";
+  if (raw === "fiat") return "fiat";
+  if (raw === "stars") return "stars";
+  console.warn(`[payments] PAYMENT_MODE="${process.env.PAYMENT_MODE}" неизвестен, используется stars`);
+  return "stars";
 }
 
 export function paymentsEnabled(): boolean {
@@ -32,10 +42,22 @@ export function paymentsEnabled(): boolean {
   return true;
 }
 
-/** Сколько Stars стоит заказ (по курсу из env). */
+/** Курс Stars: копеек за 1 Star. Некорректное env-значение → дефолт 130. */
+export function minorPerStar(): number {
+  const raw = Number(process.env.XTR_PRICE_MINOR ?? 130);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    if (process.env.XTR_PRICE_MINOR) {
+      console.warn(`[payments] XTR_PRICE_MINOR="${process.env.XTR_PRICE_MINOR}" некорректен, используется 130`);
+    }
+    return 130;
+  }
+  return raw;
+}
+
+/** Сколько Stars стоит заказ (по курсу из env). Всегда конечное число ≥ 1. */
 export function starsAmountForMinor(totalMinor: number): number {
-  const minorPerStar = Math.max(1, Number(process.env.XTR_PRICE_MINOR ?? 130));
-  return Math.max(1, Math.ceil(totalMinor / minorPerStar));
+  const amount = Math.ceil(totalMinor / minorPerStar());
+  return Number.isFinite(amount) && amount >= 1 ? amount : 1;
 }
 
 /** Инвойс в виде ссылки createInvoiceLink — Mini App открывает его через Telegram.WebApp.openInvoice(). */

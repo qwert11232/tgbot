@@ -1,20 +1,28 @@
 import type { NextRequest } from "next/server";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import crypto from "node:crypto";
 import { z } from "zod";
 import { and, eq, sql } from "drizzle-orm";
 import { db, withDbRetry } from "@/db";
-import { orderItems, orders, paymentEvents, tgUsers } from "@/db/schema";
+import { orderItems, orders, paymentEvents, products, tgUsers } from "@/db/schema";
 import { json, errorResponse, HttpError } from "@/lib/http";
 import { sendMessage } from "@/lib/telegram-bot";
+import { formatRub, notifyAdmin } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 
 /**
- * ОПЦИОНАЛЬНЫЙ webhook внешнего эквайринга (основной приём оплаты — Telegram
- * Payments через /api/webhooks/telegram; этот маршрут — для редирект-эквайринга,
- * если он будет подключён). Аутентификация: HMAC-SHA256 сырого тела ключом
- * PAYMENT_WEBHOOK_SECRET в заголовке X-Payment-Signature (hex).
- * Идемпотентность: уникальный индекс payment_events(provider="external", external_event_id).
+ * Webhook внешнего эквайринга (опционально; основной приём — Telegram Payments
+ * через /api/webhooks/telegram).
+ *
+ * Аутентификация: HMAC-SHA256 сырого тела ключом PAYMENT_WEBHOOK_SECRET
+ * в заголовке X-Payment-Signature (hex), сравнение в постоянном времени.
+ * Идемпотентность: payment_events(provider="external", external_event_id).
+ *
+ * Исправления по TEST-REPORT.md:
+ *  - P1-8: заказ проверяется ДО вставки события (раньше FK падал → 500);
+ *  - P1-7: оплата по отменённому заказу больше не теряется — событие пишется,
+ *    админ получает алерт, провайдеру отвечаем 200 (ретраи бессмысленны);
+ *  - несовпадение суммы не вызывает бесконечные ретраи провайдера.
  */
 
 const eventSchema = z.object({
@@ -25,6 +33,18 @@ const eventSchema = z.object({
   currency: z.string().max(8).optional(),
 });
 
+function signatureMatches(secret: string, raw: string, signature: string): boolean {
+  const expected = crypto.createHmac("sha256", secret).update(raw).digest("hex");
+  const a = Buffer.from(expected, "hex");
+  let b: Buffer;
+  try {
+    b = Buffer.from(signature, "hex");
+  } catch {
+    return false;
+  }
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const secret = process.env.PAYMENT_WEBHOOK_SECRET ?? "";
@@ -32,31 +52,47 @@ export async function POST(req: NextRequest) {
 
     const raw = await req.text();
     const signature = req.headers.get("x-payment-signature") ?? "";
-    const expected = createHmac("sha256", secret).update(raw).digest("hex");
-    const a = Buffer.from(expected, "hex");
-    const b = Buffer.from(signature, "hex");
-    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    if (!signatureMatches(secret, raw, signature)) {
       throw new HttpError(401, "Неверная подпись вебхука", "bad_signature");
     }
 
-    const event = eventSchema.parse(JSON.parse(raw));
+    const event = eventSchema.parse(JSON.parse(raw) as unknown);
 
-    const processed = await withDbRetry(() =>
+    // Заказ проверяем до вставки события: иначе FK payment_events.order_id
+    // превращал «неизвестный заказ» в 500 и бесконечные ретраи провайдера.
+    const [knownOrder] = await db.select().from(orders).where(eq(orders.id, event.order_id)).limit(1);
+    if (!knownOrder) {
+      console.error("[payment/external] событие по неизвестному заказу:", event);
+      await notifyAdmin(
+        `ВНИМАНИЕ: внешний платёж ${event.status} по неизвестному заказу ${event.order_id} (event ${event.event_id}). Событие не сохранено.`,
+      );
+      return json({ ok: false, error: "Заказ не найден", code: "order_not_found" }, 404);
+    }
+
+    const result = await withDbRetry(() =>
       db.transaction(async (tx) => {
+        const [order] = await tx.select().from(orders).where(eq(orders.id, event.order_id)).for("update").limit(1);
+        if (!order) return { kind: "not_found" as const };
+
         const inserted = await tx
           .insert(paymentEvents)
-          .values({ provider: "external", externalEventId: event.event_id, orderId: event.order_id, payload: event })
+          .values({ provider: "external", externalEventId: event.event_id, orderId: order.id, payload: event })
           .onConflictDoNothing()
           .returning({ id: paymentEvents.id });
-        if (inserted.length === 0) return false; // дубликат события — молча подтверждаем
-
-        const [order] = await tx.select().from(orders).where(eq(orders.id, event.order_id)).limit(1);
-        if (!order) throw new HttpError(404, "Заказ не найден", "order_not_found");
+        if (inserted.length === 0) return { kind: "duplicate" as const };
 
         if (event.status === "paid") {
           // Сверка суммы — защита от подмены количества денег корректно подписанным событием.
           if (event.amount_minor !== undefined && event.amount_minor !== order.totalMinor) {
-            throw new HttpError(409, "Сумма платежа не совпадает с суммой заказа", "amount_mismatch");
+            return { kind: "amount_mismatch" as const, totalMinor: order.totalMinor, got: event.amount_minor, orderNumber: order.orderNumber };
+          }
+          if (order.status !== "pending_payment") {
+            return {
+              kind: "wrong_status" as const,
+              status: order.status,
+              orderNumber: order.orderNumber,
+              userId: order.userId,
+            };
           }
           await tx
             .update(orders)
@@ -68,39 +104,59 @@ export async function POST(req: NextRequest) {
               updatedAt: new Date(),
             })
             .where(and(eq(orders.id, order.id), eq(orders.status, "pending_payment")));
-        } else if (event.status === "cancelled") {
-          // Отмена неоплаченного заказа + атомарный возврат остатков по позициям.
-          const cancelled = await tx
-            .update(orders)
-            .set({ status: "cancelled", updatedAt: new Date() })
-            .where(and(eq(orders.id, order.id), eq(orders.status, "pending_payment")))
-            .returning({ id: orders.id });
-          if (cancelled.length > 0) {
-            const items = await tx
-              .select({ productId: orderItems.productId, qty: orderItems.qty })
-              .from(orderItems)
-              .where(eq(orderItems.orderId, order.id));
-            for (const item of items) {
-              if (!item.productId) continue;
-              await tx.execute(
-                sql`UPDATE products SET stock = stock + ${item.qty}, updated_at = now() WHERE id = ${item.productId}`,
-              );
-            }
-          }
+          return { kind: "paid" as const, orderId: order.id, orderNumber: order.orderNumber, userId: order.userId };
         }
-        return true;
+
+        // cancelled: отмена неоплаченного заказа + атомарный возврат остатков.
+        const cancelled = await tx
+          .update(orders)
+          .set({ status: "cancelled", updatedAt: new Date() })
+          .where(and(eq(orders.id, order.id), eq(orders.status, "pending_payment")))
+          .returning({ id: orders.id });
+        if (cancelled.length === 0) return { kind: "duplicate" as const };
+
+        const items = await tx
+          .select({ productId: orderItems.productId, qty: orderItems.qty })
+          .from(orderItems)
+          .where(eq(orderItems.orderId, order.id));
+        for (const item of items) {
+          if (!item.productId) continue;
+          await tx
+            .update(products)
+            .set({ stock: sql`${products.stock} + ${item.qty}`, updatedAt: new Date() })
+            .where(eq(products.id, item.productId));
+        }
+        return { kind: "cancelled" as const, orderNumber: order.orderNumber };
       }),
     );
 
-    if (processed && event.status === "paid") {
-      const [order] = await db.select().from(orders).where(eq(orders.id, event.order_id)).limit(1);
-      if (order?.userId) {
-        const [u] = await db.select().from(tgUsers).where(eq(tgUsers.id, order.userId)).limit(1);
-        if (u) await sendMessage(u.telegramId, `Оплата по заказу #${order.orderNumber} подтверждена.`);
+    // Уведомления — после коммита, best-effort.
+    switch (result.kind) {
+      case "paid": {
+        const [u] = await db.select().from(tgUsers).where(eq(tgUsers.id, result.userId)).limit(1);
+        if (u) await sendMessage(u.telegramId, `Оплата по заказу #${result.orderNumber} подтверждена.`);
+        await notifyAdmin(`Оплачен заказ #${result.orderNumber} (внешний эквайринг)`);
+        break;
       }
+      case "amount_mismatch":
+        console.error("[payment/external] сумма не совпадает:", result);
+        await notifyAdmin(
+          `ВНИМАНИЕ: внешний платёж ${formatRub(result.got)} по заказу #${result.orderNumber} ` +
+            `не совпадает с суммой заказа ${formatRub(result.totalMinor)}. Заказ не помечен оплаченным.`,
+        );
+        break;
+      case "wrong_status":
+        console.error("[payment/external] платёж по заказу в статусе", result.status, result.orderNumber);
+        await notifyAdmin(
+          `ВНИМАНИЕ: внешний платёж по заказу #${result.orderNumber} в статусе «${result.status}» — ` +
+            `деньги списаны, заказ не изменён. Нужен возврат или ручная сверка.`,
+        );
+        break;
+      default:
+        break;
     }
 
-    return json({ ok: true, duplicate: !processed });
+    return json({ ok: true, duplicate: result.kind === "duplicate", accepted: result.kind === "paid" || result.kind === "cancelled" });
   } catch (err) {
     return errorResponse(err);
   }

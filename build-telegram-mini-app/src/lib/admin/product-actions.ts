@@ -6,9 +6,10 @@ import { and, asc, desc, eq, gt, lt, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { productImages, products } from "@/db/schema";
 import { getAdminActor } from "@/lib/admin-session";
-import { ForbiddenError } from "@/lib/http";
+import { ForbiddenError, HttpError } from "@/lib/http";
 import { uniqueSlug } from "@/lib/slug";
 import { deleteImage } from "@/lib/storage";
+import { isUniqueViolation, userFacingDbError } from "@/lib/db-errors";
 
 type ActionResult<T = undefined> = T extends undefined
   ? { ok: true } | { ok: false; error: string }
@@ -18,9 +19,9 @@ const ok = () => ({ ok: true as const });
 
 function fail(err: unknown): { ok: false; error: string } {
   if (err instanceof ZodError) return { ok: false, error: err.issues[0]?.message ?? "Ошибка валидации данных" };
-  if (err instanceof ForbiddenError) return { ok: false, error: err.message };
-  if (err instanceof Error) return { ok: false, error: err.message };
-  return { ok: false, error: "Неизвестная ошибка" };
+  if (err instanceof ForbiddenError || err instanceof HttpError) return { ok: false, error: err.message };
+  console.error("[product] action failed:", err);
+  return { ok: false, error: userFacingDbError(err, "Не удалось сохранить товар. Попробуйте ещё раз") };
 }
 
 /** Товары и галереи доступны обеим ролям (owner и manager). */
@@ -74,7 +75,8 @@ export async function createProductAction(input: unknown): Promise<ActionResult<
           })
           .returning({ id: products.id });
       } catch (err) {
-        if (attempt === 1 || !/unique|duplicate/i.test(String((err as Error)?.message))) throw err;
+        // drizzle оборачивает ошибку драйвера: код 23505 ищем и в cause.
+        if (attempt === 1 || !isUniqueViolation(err)) throw err;
       }
     }
     revalidatePath("/admin/products");

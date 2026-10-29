@@ -3,7 +3,7 @@ import { getAdminActor } from "@/lib/admin-session";
 import { json, errorResponse, HttpError } from "@/lib/http";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { detectImageByMagicBytes, MAX_IMAGE_BYTES } from "@/lib/image-validation";
-import { saveImage } from "@/lib/storage";
+import { saveImage, StorageNotConfiguredError } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -35,8 +35,15 @@ export async function POST(req: NextRequest) {
       throw new HttpError(415, "Разрешены только JPEG, PNG, WebP или GIF (проверка по сигнатуре файла)", "bad_type");
     }
 
-    const saved = await saveImage(buf, detected.ext, detected.mime);
-    return json({ url: saved.url }, 201);
+    try {
+      const saved = await saveImage(buf, detected.ext, detected.mime);
+      return json({ url: saved.url }, 201);
+    } catch (err) {
+      if (err instanceof StorageNotConfiguredError) {
+        throw new HttpError(503, err.message, "storage_not_configured");
+      }
+      throw err;
+    }
   } catch (err) {
     return errorResponse(err);
   }

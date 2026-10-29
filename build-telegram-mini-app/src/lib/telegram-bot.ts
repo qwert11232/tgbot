@@ -1,6 +1,16 @@
 import { botToken } from "@/lib/telegram-auth";
 
-const API_BASE = "https://api.telegram.org";
+/**
+ * База Bot API. Переопределяется через TELEGRAM_API_BASE — это нужно для
+ * тестов (локальный mock вместо api.telegram.org) и для прокси в закрытых
+ * сетях. В production переменную задавать не нужно.
+ */
+function apiBase(): string {
+  return (process.env.TELEGRAM_API_BASE ?? "https://api.telegram.org").replace(/\/+$/, "");
+}
+
+/** Таймаут запроса к Bot API: зависший вызов не должен держать вебхук. */
+const BOT_TIMEOUT_MS = 8000;
 
 interface TgApiResponse<T> {
   ok: boolean;
@@ -17,10 +27,11 @@ export async function botCall<T = unknown>(method: string, body: Record<string, 
   const token = botToken();
   if (!token) return null;
   try {
-    const res = await fetch(`${API_BASE}/bot${token}/${method}`, {
+    const res = await fetch(`${apiBase()}/bot${token}/${method}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(BOT_TIMEOUT_MS),
     });
     const data = (await res.json().catch(() => null)) as TgApiResponse<T> | null;
     if (!data?.ok) {
