@@ -181,7 +181,8 @@ production-сборке (`next start`).
 Сделано:
 
 * `vercel.json` → `"schedule": "0 3 * * *"` (суточный страховочный запуск, 03:00 UTC);
-* `.github/workflows/expire-orders.yml` → запуск каждые 10 минут бесплатно, через
+* `.github/workflows/expire-orders.yml` (**в корне репозитория** — GitHub не читает
+  workflows из вложенных каталогов) → запуск каждые 10 минут бесплатно, через
   `workflow_dispatch` можно дёрнуть вручную; активируется переменными
   `APP_URL` (Variables) и `CRON_SECRET` (Secrets), без них молчит;
 * ленивая очистка в `GET /api/catalog` / `GET /api/orders` усилена (до 50 заказов
