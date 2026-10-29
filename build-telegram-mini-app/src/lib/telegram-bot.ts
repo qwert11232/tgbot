@@ -90,6 +90,19 @@ export function createInvoiceLink(params: {
   });
 }
 
+/**
+ * Прямая ссылка на файл, присланный боту (для загрузки фото товара из админки).
+ * У файлов есть лимит Bot API — для фото товаров его достаточно.
+ */
+export async function getFileUrl(fileId: string): Promise<string | null> {
+  const token = botToken();
+  if (!token) return null;
+  const file = await botCall<{ file_path?: string }>("getFile", { file_id: fileId });
+  const path = file?.file_path;
+  if (!path) return null;
+  return `${apiBase()}/file/bot${token}/${path}`;
+}
+
 /** Кнопка «Открыть магазин» для /start. */
 export function webAppKeyboard(url: string) {
   return {

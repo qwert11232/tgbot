@@ -1,9 +1,68 @@
 {
-  "id": "1dba7c6a-7261-432d-8b10-26b1827ec8a1",
+  "id": "4a2a8dba-9015-441c-831e-e2e5979fd761",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.bot_states": {
+      "name": "bot_states",
+      "schema": "",
+      "columns": {
+        "chat_id": {
+          "name": "chat_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "staff_id": {
+          "name": "staff_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "bot_states_staff_id_staff_users_id_fk": {
+          "name": "bot_states_staff_id_staff_users_id_fk",
+          "tableFrom": "bot_states",
+          "tableTo": "staff_users",
+          "columnsFrom": [
+            "staff_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.categories": {
       "name": "categories",
       "schema": "",
@@ -769,93 +828,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.staff_sessions": {
-      "name": "staff_sessions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ip": {
-          "name": "ip",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "user_agent": {
-          "name": "user_agent",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "staff_sessions_user_idx": {
-          "name": "staff_sessions_user_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "staff_sessions_user_id_staff_users_id_fk": {
-          "name": "staff_sessions_user_id_staff_users_id_fk",
-          "tableFrom": "staff_sessions",
-          "tableTo": "staff_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.staff_users": {
       "name": "staff_users",
       "schema": "",
@@ -867,9 +839,9 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "email": {
-          "name": "email",
-          "type": "citext",
+        "telegram_id": {
+          "name": "telegram_id",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true
         },
@@ -877,13 +849,8 @@
           "name": "name",
           "type": "varchar(120)",
           "primaryKey": false,
-          "notNull": true
-        },
-        "password_hash": {
-          "name": "password_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "''"
         },
         "role": {
           "name": "role",
@@ -900,12 +867,12 @@
           "notNull": true,
           "default": true
         },
-        "session_version": {
-          "name": "session_version",
-          "type": "integer",
+        "notifications": {
+          "name": "notifications",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": 1
+          "default": true
         },
         "created_at": {
           "name": "created_at",
@@ -923,11 +890,11 @@
         }
       },
       "indexes": {
-        "staff_users_email_uq": {
-          "name": "staff_users_email_uq",
+        "staff_users_telegram_id_uq": {
+          "name": "staff_users_telegram_id_uq",
           "columns": [
             {
-              "expression": "email",
+              "expression": "telegram_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

@@ -237,7 +237,7 @@ const dupItems = await req("/api/orders", {
     ],
   }),
 });
-check("дубликаты позиций схлопываются в одну строку qty=2", dupItems.status === 201 && dupItems.body?.order?.items?.length === 1 && dupItems.body.order.items[0].qty === 2, dupItems.body?.order?.items);
+check("дубликаты позиций схлопываются в одну строку qty=2", dupItems.status === 201 && dupItems.body?.order?.items?.length === 1 && dupItems.body.order.items[0].qty === 2, [dupItems.status, dupItems.body]);
 
 const notFoundProduct = await req("/api/orders", {
   method: "POST",
@@ -354,14 +354,25 @@ const cancelled = await req("/api/webhooks/payment", { method: "POST", headers: 
 const afterCancelStock = (await req(`/api/products/${inStock.id}`)).body.product.stock;
 check("cancelled возвращает остатки", cancelled.status === 200 && afterCancelStock === beforeCancelStock, { afterCancelStock, beforeCancelStock, body: cancelled.body });
 
-// ---------------------------------------------------------------- админка
-const anonAdmin = await fetch(BASE + "/admin", { redirect: "manual" });
-check("GET /admin без cookie → redirect 307 на /admin/login", anonAdmin.status === 307 && (anonAdmin.headers.get("location") ?? "").includes("/admin/login"), [anonAdmin.status, anonAdmin.headers.get("location")]);
-const anonApi = await req("/api/admin/upload", { method: "POST" });
-check("/api/admin/upload без сессии → 401", anonApi.status === 401, anonApi.status);
+// ------------------------------------------------------- админка (в боте)
+// Веб-панели больше нет: /admin — страница 404, доступ к управлению только через бота.
+const legacyAdmin = await fetch(BASE + "/admin", { redirect: "manual" });
+check("веб-панель /admin недоступна (404)", legacyAdmin.status === 404, legacyAdmin.status);
 
-// Подделываем валидную сессию admin через прямой INSERT + JWT (server action логина проверим отдельно)
-console.log("\n--- дальше требуются данные БД (сид) ---");
+const healthRes = await fetch(BASE + "/api/health");
+check("/api/health отвечает 200", healthRes.status === 200, healthRes.status);
+
+// Незнакомец в боте не получает доступ к панели, но узнаёт свой ID.
+const strangerId = 555001;
+const denied = await req("/api/webhooks/telegram", {
+  method: "POST",
+  headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": WEBHOOK_SECRET },
+  body: JSON.stringify({
+    update_id: 9001,
+    message: { message_id: 1, chat: { id: strangerId }, from: { id: strangerId }, text: "/admin" },
+  }),
+});
+check("/admin от незнакомца обрабатывается без 500", denied.status === 200 && denied.body?.ok === true, denied.status);
 
 console.log(`\nИТОГО: PASS=${pass}, FAIL=${fails.length}`);
 await pool.end().catch(() => {});

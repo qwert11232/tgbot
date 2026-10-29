@@ -11,7 +11,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL ?? "postgresq
 const suites = [
   ["unit", "npx", ["tsx", "tests/unit.ts"]],
   ["smoke (API)", "node", ["tests/smoke.mjs"]],
-  ["admin (UI/actions/RBAC)", "node", ["tests/admin.mjs"]],
+  ["admin-bot (панель в Telegram)", "node", ["tests/admin-bot.mjs"]],
   ["concurrency (гонки)", "node", ["tests/concurrency.mjs"]],
   ["regressions (исправленные дефекты)", "node", ["tests/regressions.mjs"]],
 ];

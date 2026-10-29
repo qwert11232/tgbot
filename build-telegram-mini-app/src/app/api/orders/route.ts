@@ -9,6 +9,7 @@ import { json, errorResponse, HttpError } from "@/lib/http";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createOrderInvoiceLink, paymentsEnabled } from "@/lib/payments";
 import { maybeExpireStaleOrders, orderExpiresAt } from "@/lib/orders/expire";
+import { escapeHtml, formatRub, notifyAdmin } from "@/lib/notify";
 import type { Order, OrderItem } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -212,6 +213,14 @@ export async function POST(req: NextRequest) {
     let items = result.items;
     if (items.length === 0) {
       items = await db.select().from(orderItems).where(eq(orderItems.orderId, result.order.id));
+    }
+
+    // Новый заказ — уведомляем сотрудников в боте (best-effort, после коммита).
+    if (!result.reused) {
+      void notifyAdmin(
+        `🆕 Новый заказ #${result.order.orderNumber} на ${formatRub(result.order.totalMinor)}\n` +
+          `${escapeHtml(result.order.customerName)} · ${escapeHtml(result.order.phone)}`,
+      );
     }
 
     // Инвойс Telegram Payments создаём вне транзакции (внешний вызов).

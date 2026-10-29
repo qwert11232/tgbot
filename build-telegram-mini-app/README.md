@@ -1,7 +1,8 @@
 # ГОРН — интернет-магазин в Telegram Mini App
 
 Монолит на Next.js (App Router): покупательская часть — Telegram Mini App,
-админка (`/admin`) — отдельный раздел того же приложения для обычного браузера.
+**админка — в самом Telegram-боте** (никакого веба, паролей и cookie): команда
+`/admin` открывает панель с заказами, товарами, сотрудниками и отчётами.
 
 ## Стек
 
@@ -11,7 +12,8 @@
 - Хранилище изображений — Vercel Blob (локально/self-hosted — `public/uploads`,
   отдаётся route-обработчиком `/uploads/[...path]`)
 - Покупатели — авторизация через WebApp.initData (HMAC + auth_date)
-- Админка — email+password, собственные сессии (JWT в httpOnly cookie + таблица сессий)
+- Админка — Telegram-бот: доступ по `telegram_id` из таблицы `staff_users`,
+  роли owner/manager, состояние диалога в БД (`bot_states`)
 - Уведомления и оплата — Telegram Bot (webhook) + Telegram Payments (Stars / fiat)
 
 ## Чек-лист деплоя на Vercel
@@ -27,7 +29,7 @@
 3. **Vercel Blob**: создать Blob Store, подключить к проекту — env `BLOB_READ_WRITE_TOKEN` подтянется автоматически.
 4. **Переменные окружения Vercel** (см. `.env.example`): `DATABASE_URL`,
    `BOT_TOKEN`, `NEXT_PUBLIC_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET`,
-   `APP_URL`, `ADMIN_SESSION_SECRET` (≥32), `TG_SESSION_SECRET` (≥32),
+   `APP_URL`, `ADMIN_TELEGRAM_ID` (ваш Telegram ID), `TG_SESSION_SECRET` (≥32),
    `PAYMENT_MODE` (`stars` | `fiat`), при fiat — `PAYMENT_PROVIDER_TOKEN`,
    `PAYMENT_CURRENCY`; опционально `XTR_PRICE_MINOR`, `ADMIN_NOTIFY_CHAT_ID`,
    `PAYMENT_WEBHOOK_SECRET`, `ORDER_TTL_MINUTES` (по умолчанию 60), `CRON_SECRET`.
@@ -77,25 +79,17 @@ cp .env.example .env          # заполнить DATABASE_URL и секрет�
 createdb app_db || true
 psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS citext;"
 npm run db:push
-ADMIN_PASSWORD='придумайте-свой-пароль' npm run db:seed   # owner из ADMIN_EMAIL
+ADMIN_TELEGRAM_ID=123456789 npm run db:seed   # owner = ваш Telegram ID (узнать: /id в боте)
 npm run dev
 ```
 
-- Админка: http://localhost:3000/admin — вход по email+паролю сотрудника.
-  После `npm run db:seed` создаётся owner:
-  * `ADMIN_EMAIL` (по умолчанию `admin@gorn.local`);
-  * `ADMIN_PASSWORD`, если задан при сиде; **если не задан — пароль по умолчанию
-    `gorn-admin-2026`**, его нужно сменить сразу после первого входа.
-  Забыли пароль / нужно сменить из консоли (сессии при этом сбрасываются):
-  ```bash
-  npm run db:passwd -- admin@gorn.local 'новый-пароль-от-10-символов'
-  ```
-  Новых сотрудников с ролями owner/manager создаёт owner в разделе «Сотрудники».
-  Если панель открывается во встроенном окне/iframe на другом домене (превью,
-  внутренний портал), задайте `ADMIN_COOKIE_SAMESITE=none`: иначе браузер не
-  отправляет lax-cookie в стороннем контексте и вход «слетает» на каждом разделе.
-  Работает только по https (Secure включается автоматически); по http
-  приложение откатывается на `lax`, чтобы cookie вообще сохранялась.
+- **Админка — в Telegram-боте.** Откройте бота, отправьте `/id` (узнаете свой ID),
+  положите его в `ADMIN_TELEGRAM_ID` и нажмите `/admin`. Владелец создастся сам
+  при первом обращении — пароль не нужен, доступ проверяется по `telegram_id`.
+  Команды: `/admin`, `/orders`, `/products`, `/report`, `/staff`, `/help`.
+  Новых сотрудников добавляет владелец: «Сотрудники» → «Добавить» (нужен их
+  Telegram ID, они узнают его командой `/id`). Роли: owner — всё, manager — заказы,
+  товары и отчёты.
 - Магазин в браузере (dev-обход TG-авторизации): http://localhost:3000/app
   (работает, только если `TG_AUTH_DEV_BYPASS=1`, `NEXT_PUBLIC_TG_DEV_BYPASS=1` **и**
   `BOT_TOKEN` пуст. `NEXT_PUBLIC_*` встраивается в бандл при сборке — после смены нужен перезапуск dev-сервера)
@@ -104,7 +98,7 @@ npm run dev
 
 ```bash
 npm run test:unit    # чистые функции, без БД и сети
-npm run test:e2e     # API + админка + гонки + регрессии на исправленные дефекты
+npm run test:e2e     # API + админ-бот + гонки + регрессии на исправленные дефекты
                      # (нужны запущенные БД, mock Bot API и `npm start`)
 ```
 
@@ -125,48 +119,43 @@ npm run test:e2e     # API + админка + гонки + регрессии н
    (`/api/cron/expire-orders`), остатки возвращаются на склад, покупатель получает
    уведомление от бота.
 
-## Если на Vercel админка пишет «This page couldn't load»
-
-Это падение server action входа, а не неверный пароль. Посмотреть причину можно
-без логов, открыв в браузере:
+## Диагностика на Vercel
 
 ```
 https://<ваш-домен>/api/health?verbose=1
 ```
 
-Ответ покажет, что именно не так (`ok: true` = всё в порядке, иначе `503`):
+`ok: true` — всё в порядке, иначе `503` и таблица проблем:
 
 | check | Что значит | Что делать |
 |---|---|---|
-| `config:admin_session_secret_missing` / `_too_short` | не задан `ADMIN_SESSION_SECRET` или он короче 32 символов | `openssl rand -hex 32` → в Environment Variables → **Redeploy** |
-| `config:database_url_missing` | нет `DATABASE_URL` | добавить строку подключения Neon → **Redeploy** |
+| `env:ADMIN_TELEGRAM_ID` | не задан ID владельца | узнать свой ID командой `/id` в боте → добавить переменную → **Redeploy** |
+| `env:BOT_TOKEN` | нет токена бота | получить у @BotFather → переменная → Redeploy |
+| `env:TELEGRAM_WEBHOOK_SECRET` | не задан секрет вебхука | придумать строку → переменная + `setWebhook` с `secret_token` |
 | `db:connection` | база недоступна (пауза проекта, неверный хост/пароль) | проверить проект Neon и строку подключения |
-| `db:schema` | миграции не применены | `DATABASE_URL=<url> npx drizzle-kit migrate`, затем `npx tsx src/db/seed.ts` |
-| `db:owner_exists` | в базе нет владельца | `DATABASE_URL=<url> ADMIN_EMAIL=... ADMIN_PASSWORD='...' npx tsx src/db/seed.ts` |
+| `db:schema` | миграции не применены | `DATABASE_URL=<url> npx drizzle-kit migrate` (или готовый SQL, см. ниже) |
+| `db:owner_exists` | в базе нет владельца | открыть `/admin` в боте (создастся из `ADMIN_TELEGRAM_ID`) либо `npm run db:seed` |
 
-Важно: **переменные окружения применяются только после Redeploy** — если вы
-добавили их после первого деплоя, приложение продолжит работать со старым
-окружением. Также `ADMIN_SESSION_SECRET` и `TG_SESSION_SECRET` должны быть
-минимум 32 символа, иначе вход в админку невозможен по дизайну (исключение
-бросается намеренно, чтобы слабый секрет не подделывал сессии).
+Переменные окружения применяются **только после Redeploy**.
 
-Теперь такие ошибки не превращаются в «This page couldn't load»: форма входа
-показывает текст проблемы и подсказку, а подробности пишутся в логи функции.
+Если миграции не запускаются (нет Node/PowerShell-путаница), есть готовый
+**`neon-setup.sql`** в корне репозитория: вставляется в Neon → SQL Editor,
+создаёт схему и владельца. Внутри — блок «ВЛАДЕЛЕЦ», где нужно указать свой
+Telegram ID.
 
 ## Безопасность и деньги — где что лежит
 
 | Требование | Файл |
 |---|---|
 | Верификация initData (HMAC + auth_date) | `src/lib/telegram-auth.ts` |
-| 3 уровня защиты админки | `src/proxy.ts` → `src/lib/admin-session.ts` → `requireAdmin()/assertRole()` на каждой странице и action |
-| Защита последнего owner | `src/lib/admin/staff-actions.ts` (`FOR UPDATE` в транзакции) |
+| Доступ к админке | `src/lib/admin-bot/service.ts` (`findStaff` по `telegram_id`, активность) + проверка роли в `src/lib/admin-bot/index.ts` |
+| Защита последнего owner | `src/lib/admin-bot/service.ts` (`setStaffActive` не даёт отключить последнего владельца) |
 | Атомарное списание остатков | `src/app/api/orders/route.ts` (`UPDATE … WHERE stock >= N`) |
 | Идемпотентность заказа + сверка хэша | там же (таблица `idempotency_keys`) |
 | Идемпотентность платёжных вебхуков | `payment_events`, уникальный индекс `(provider, external_event_id)` |
-| Magic bytes + лимит размера изображений | `src/lib/image-validation.ts`, `src/app/api/admin/upload/route.ts` |
+| Magic bytes + лимит размера изображений (загрузка фото в боте) | `src/lib/image-validation.ts`, `src/lib/admin-bot/service.ts` |
 | citext email | `staff_users.email` + `CREATE EXTENSION citext` |
 | Rate limiting (логин по IP и по email, initData, заказ, инвойсы, загрузки) | `src/lib/rate-limit.ts` (атомарно в БД) |
-| Cookie сессии админки: Secure по фактическому протоколу, SameSite настраивается | `src/lib/admin-cookie-policy.ts` |
 | Автоотмена брошенных заказов + возврат остатков | `src/lib/orders/expire.ts`, `/api/cron/expire-orders` |
 | Безопасные сообщения об ошибках БД (без SQL/хешей) | `src/lib/db-errors.ts` |
 | Заголовки безопасности (nosniff, CSP frame-ancestors, HSTS) | `next.config.ts` |
