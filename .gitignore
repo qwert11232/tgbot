@@ -1,0 +1,64 @@
+# ─── AI Workspace: локальные скиллы и рабочий мусор ───────────────────────────
+# Скиллы разворачиваются из .ai/skills.txt в .ai/skills/ — это чужой код,
+# он нужен только локально агенту и не должен попадать в репозиторий.
+.ai/skills/
+.ai/cache/
+.ai/tmp/
+.ai/*.local.md
+.ai/**/*.local.*
+
+# ─── Общие кэши инструментов ──────────────────────────────────────────────────
+.cache/
+.tmp/
+.temp/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.yarn/
+.pnpm-store/
+
+# ─── Node / JS / TS ──────────────────────────────────────────────────────────
+node_modules/
+.next/
+.nuxt/
+.output/
+.turbo/
+.vercel/
+dist/
+build/
+out/
+coverage/
+*.tsbuildinfo
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# ─── Тесты и браузеры ────────────────────────────────────────────────────────
+.playwright/
+.playwright-cli/
+test-results/
+blob-report/
+
+# ─── Секреты и локальные настройки ───────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.netrc
+.git-credentials
+
+# ─── Редакторы и ОС ──────────────────────────────────────────────────────────
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
