@@ -13,18 +13,7 @@ import {
   index,
   uniqueIndex,
   primaryKey,
-  customType,
 } from "drizzle-orm/pg-core";
-
-/**
- * citext — регистронезависимый email на уровне БД.
- * Требует: CREATE EXTENSION IF NOT EXISTS citext; (см. README / чек-лист деплоя).
- */
-const citext = customType<{ data: string }>({
-  dataType() {
-    return "citext";
-  },
-});
 
 export const staffRoleEnum = pgEnum("staff_role", ["owner", "manager"]);
 
@@ -42,43 +31,39 @@ export type StaffRole = (typeof staffRoleEnum.enumValues)[number];
 
 /* ---------------------------------- staff ---------------------------------- */
 
+/**
+ * Сотрудники. Админка живёт целиком в Telegram-боте, поэтому вход — по
+ * telegram_id: бот узнаёт сотрудника по author.id апдейта. Ни email, ни паролей,
+ * ни cookie больше нет. Роль owner/manager определяет доступные действия.
+ */
 export const staffUsers = pgTable(
   "staff_users",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    email: citext("email").notNull(),
-    name: varchar("name", { length: 120 }).notNull(),
-    passwordHash: text("password_hash").notNull(),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    name: varchar("name", { length: 120 }).notNull().default(""),
     role: staffRoleEnum("role").notNull().default("manager"),
     isActive: boolean("is_active").notNull().default(true),
-    // Инкремент при смене роли/деактивации/сбросе пароля — инвалидирует выданные JWT сессии.
-    sessionVersion: integer("session_version").notNull().default(1),
+    /** Присылать уведомления о новых заказах и оплатах. */
+    notifications: boolean("notifications").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("staff_users_email_uq").on(t.email)],
+  (t) => [uniqueIndex("staff_users_telegram_id_uq").on(t.telegramId)],
 );
 
 /**
- * Серверные сессии админки. Refresh-токены сознательно НЕ используются:
- * живой cookie-JWT на 12 часов + мгновенный отзыв через эту таблицу
- * (поэтому механизм «семей» refresh-токенов не требуется).
+ * Состояние диалога бота (ввод цены, остатка, добавление сотрудника и т.п.).
+ * Хранится в БД, а не в памяти: serverless-инстансы не переносят состояние между
+ * запросами, а рестарт не должен «терять» начатый ввод.
  */
-export const staffSessions = pgTable(
-  "staff_sessions",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => staffUsers.id, { onDelete: "cascade" }),
-    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
-    revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
-    ip: varchar("ip", { length: 64 }),
-    userAgent: text("user_agent"),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-  },
-  (t) => [index("staff_sessions_user_idx").on(t.userId)],
-);
+export const botStates = pgTable("bot_states", {
+  chatId: bigint("chat_id", { mode: "number" }).primaryKey(),
+  staffId: uuid("staff_id").references(() => staffUsers.id, { onDelete: "cascade" }),
+  state: varchar("state", { length: 40 }).notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
 
 /* ----------------------------- telegram users ----------------------------- */
 

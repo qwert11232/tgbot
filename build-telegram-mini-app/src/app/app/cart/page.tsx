@@ -1,5 +1,6 @@
 "use client";
 
+import { useTelegramBack } from "@/components/miniapp/use-telegram-ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Minus, Plus, Trash2 } from "lucide-react";
@@ -8,6 +9,7 @@ import { useCartDetails } from "@/components/miniapp/use-cart-details";
 import { formatPrice } from "@/lib/format";
 
 export default function CartPage() {
+  useTelegramBack("/app");
   const router = useRouter();
   const { lines, details, detailById, total, missingCount } = useCartDetails();
 

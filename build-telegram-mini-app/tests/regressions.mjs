@@ -10,14 +10,11 @@ import { readFileSync } from "node:fs";
 import { prepareDemoData, pool } from "./db.mjs";
 
 const require = createRequire(import.meta.url);
-const flight = require("next/dist/compiled/react-server-dom-webpack/client.node.js");
-const { SignJWT } = require("jose");
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:3000";
 const BOT_TOKEN = process.env.BOT_TOKEN ?? "123456:TEST-TOKEN";
 const WH = process.env.TELEGRAM_WEBHOOK_SECRET ?? "test-webhook-secret";
 const PAY_SECRET = process.env.PAYMENT_WEBHOOK_SECRET ?? "pay-webhook-secret";
-const ADMIN_SECRET = process.env.ADMIN_SESSION_SECRET ?? "0123456789abcdef0123456789abcdef";
 const CRON_SECRET = process.env.CRON_SECRET ?? "cron-secret";
 const MOCK_API = process.env.MOCK_TG ?? "http://127.0.0.1:3333";
 const ADMIN_CHAT = process.env.ADMIN_NOTIFY_CHAT_ID ?? "999001";
@@ -51,6 +48,14 @@ async function waitForCall(method, predicate = () => true, timeoutMs = 4000) {
     await sleep(120);
   }
   return null;
+}
+
+async function tgUpdate(update) {
+  return fetch(`${BASE}/api/webhooks/telegram`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": WH },
+    body: JSON.stringify(update),
+  });
 }
 
 await prepareDemoData();
@@ -280,214 +285,45 @@ const b1 = await buyer();
   check("P1-8: неверная подпись → 401", badSigRes.status === 401, badSigRes.status);
 }
 
-/* ─────────── P1-9: лимит логина не обходится X-Forwarded-For ─────────── */
+/* ─────────── P0-33/P0-34: админка переехала в бота ─────────── */
 {
-  const manifest = JSON.parse(readFileSync(process.env.ACTION_MANIFEST ?? ".next/server/server-reference-manifest.json", "utf8"));
-  const loginId = Object.entries(manifest.node).find(([, v]) => v.exportedName === "loginAction")[0];
-  await pool.query("delete from rate_limits where key like 'admin-login:%'");
+  const adminPage = await fetch(`${BASE}/admin`, { redirect: "manual" });
+  check("P0-33: веб-панель /admin удалена (404)", adminPage.status === 404, adminPage.status);
 
-  let blocked = 0;
-  for (let i = 0; i < 12; i++) {
-    const fd = new FormData();
-    fd.set("email", "admin@gorn.local");
-    fd.set("password", "definitely-wrong");
-    const res = await fetch(`${BASE}/admin/login`, {
-      method: "POST",
-      headers: { "next-action": loginId, origin: BASE, "x-forwarded-for": `10.2.0.${i}` },
-      body: await flight.encodeReply([{}, fd]),
-    });
-    if ((await res.text()).includes("Слишком много попыток")) blocked++;
-  }
-  check("P1-9: 12 попыток с разных IP блокируются лимитом на email", blocked >= 4, `заблокировано ${blocked}`);
+  const adminApi = await fetch(`${BASE}/api/admin/upload`, { method: "POST" });
+  check("P0-33: /api/admin/* удалён (404)", adminApi.status === 404, adminApi.status);
 
-  // другой email с того же IP тоже лимитируется по IP
-  await pool.query("delete from rate_limits where key like 'admin-login:%'");
-  let blocked2 = 0;
-  for (let i = 0; i < 12; i++) {
-    const fd = new FormData();
-    fd.set("email", `nobody${i}@gorn.local`);
-    fd.set("password", "definitely-wrong");
-    const res = await fetch(`${BASE}/admin/login`, {
-      method: "POST",
-      headers: { "next-action": loginId, origin: BASE, "x-real-ip": "10.3.0.9" },
-      body: await flight.encodeReply([{}, fd]),
-    });
-    if ((await res.text()).includes("Слишком много попыток")) blocked2++;
-  }
-  check("P1-9: лимит по IP (x-real-ip) тоже работает", blocked2 >= 4, `заблокировано ${blocked2}`);
-  await pool.query("delete from rate_limits where key like 'admin-login:%'");
-}
-
-/* ─────────── P1-10 / P0-6: админские actions ─────────── */
-{
-  const { rows } = await pool.query("select * from staff_users where role = 'owner' limit 1");
-  const owner = rows[0];
-  const sid = crypto.randomUUID();
-  await pool.query("insert into staff_sessions (id, user_id, expires_at) values ($1, $2, $3)", [
-    sid,
-    owner.id,
-    new Date(Date.now() + 3600e3),
-  ]);
-  const jwt = await new SignJWT({ sid, sub: owner.id, sv: owner.session_version })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("1h")
-    .sign(new TextEncoder().encode(ADMIN_SECRET));
-
-  const manifest = JSON.parse(readFileSync(process.env.ACTION_MANIFEST ?? ".next/server/server-reference-manifest.json", "utf8"));
-  const idOf = (name) => Object.entries(manifest.node).find(([, v]) => v.exportedName === name)[0];
-  const call = async (name, args, path = "/admin/staff", cookie = jwt) => {
-    const res = await fetch(BASE + path, {
-      method: "POST",
-      redirect: "manual",
-      headers: { "next-action": idOf(name), "content-type": "text/plain;charset=UTF-8", origin: BASE, cookie: `admin_session=${cookie}` },
-      body: JSON.stringify(args),
-    });
-    return { status: res.status, body: await res.text() };
-  };
-
-  const dup = await call("createStaffAction", [{ email: owner.email, name: "Дубль", password: "password-123", role: "manager" }]);
-  check(
-    "P0-6: дубликат email → безопасный текст без SQL и хеша",
-    dup.body.includes('"ok":false') && /уже существует/.test(dup.body) && !/Failed query|params:|\$2[aby]\$/.test(dup.body),
-    dup.body.slice(0, 200),
-  );
-
-  const ghost = await call("resetStaffPasswordAction", [crypto.randomUUID(), "password-123"]);
-  check("P1-10: сброс пароля несуществующему → ok:false", ghost.body.includes('"ok":false') && ghost.body.includes("не найден"), ghost.body.slice(0, 200));
-
-  const ghostDelete = await call("deleteStaffAction", [crypto.randomUUID()]);
-  check("P1-10: удаление несуществующего → ok:false", ghostDelete.body.includes('"ok":false'), ghostDelete.body.slice(0, 200));
-
-  const ghostCategory = await call(
-    "createProductAction",
-    [{ name: "Товар с битой категорией", description: "", categoryId: crypto.randomUUID(), priceRub: "100", stock: 1, isActive: true }],
-    "/admin/products/new",
-  );
-  check(
-    "P0-6: несуществующая категория → понятная ошибка, в БД не падает",
-    ghostCategory.body.includes('"ok":false') && ghostCategory.body.includes("категория") && !/Failed query/.test(ghostCategory.body),
-    ghostCategory.body.slice(0, 200),
-  );
-
-  /* P1-13: возврат на исходную страницу после логина */
-  const fd = new FormData();
-  fd.set("email", owner.email);
-  fd.set("password", "gorn-admin-2026");
-  fd.set("next", "/admin/orders");
-  const login = await fetch(`${BASE}/admin/login`, {
-    method: "POST",
-    redirect: "manual",
-    headers: { "next-action": idOf("loginAction"), origin: BASE, "x-real-ip": "10.9.9.9" },
-    body: await flight.encodeReply([{}, fd]),
-  });
-  const redirectTarget = login.headers.get("location") ?? login.headers.get("x-action-redirect") ?? "";
-  check(
-    "P1-13: после логина редирект на ?next=/admin/orders",
-    [303, 307].includes(login.status) && redirectTarget.includes("/admin/orders"),
-    [login.status, redirectTarget],
-  );
-
-  // open redirect: next= с внешним адресом не должен уводить с сайта после логина
-  const fd2 = new FormData();
-  fd2.set("email", owner.email);
-  fd2.set("password", "gorn-admin-2026");
-  fd2.set("next", "https://evil.example/phish");
-  const evilNext = await fetch(`${BASE}/admin/login`, {
-    method: "POST",
-    redirect: "manual",
-    headers: { "next-action": idOf("loginAction"), origin: BASE, "x-real-ip": "10.9.9.10" },
-    body: await flight.encodeReply([{}, fd2]),
-  });
-  const evilTarget = evilNext.headers.get("location") ?? evilNext.headers.get("x-action-redirect") ?? "";
-  check(
-    "P1-13: внешний next= не даёт open redirect (уходим на /admin)",
-    !evilTarget.includes("evil.example") && evilTarget.includes("/admin"),
-    [evilNext.status, evilTarget],
-  );
-
-  /* P0-31: cookie сессии админки должна выживать при http и во встроенном окне.
-     Раньше: secure всегда в production (http-деплой терял cookie) и SameSite=lax
-     (в iframe на другом домене cookie не отправлялась) → каждый раздел снова
-     просил пароль. */
-  const loginWithProto = async (proto, ip) => {
-    const f = new FormData();
-    f.set("email", owner.email);
-    f.set("password", "gorn-admin-2026");
-    const res = await fetch(`${BASE}/admin/login`, {
-      method: "POST",
-      redirect: "manual",
-      headers: { "next-action": idOf("loginAction"), origin: BASE, "x-real-ip": ip, "x-forwarded-proto": proto },
-      body: await flight.encodeReply([{}, f]),
-    });
-    return (res.headers.getSetCookie?.() ?? [res.headers.get("set-cookie") ?? ""]).join("\n");
-  };
-
-  const cookieHttp = await loginWithProto("http", "10.9.9.11");
-  check(
-    "P0-31: логин по http → cookie без Secure (иначе браузер её выбросит)",
-    cookieHttp.includes("admin_session=") && !/;\s*Secure/i.test(cookieHttp),
-    cookieHttp.slice(0, 200),
-  );
-
-  const cookieHttps = await loginWithProto("https", "10.9.9.12");
-  check(
-    "P0-31: логин по https → cookie с Secure и SameSite",
-    cookieHttps.includes("admin_session=") && /;\s*Secure/i.test(cookieHttps) && /SameSite=/i.test(cookieHttps),
-    cookieHttps.slice(0, 200),
-  );
-
-  /* P1-14: авторизованный не видит форму логина */
-  const sid2 = crypto.randomUUID();
-  await pool.query("insert into staff_sessions (id, user_id, expires_at) values ($1, $2, $3)", [sid2, owner.id, new Date(Date.now() + 3600e3)]);
-  const jwt2 = await new SignJWT({ sid: sid2, sub: owner.id, sv: owner.session_version })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("1h")
-    .sign(new TextEncoder().encode(ADMIN_SECRET));
-  const loginPage = await fetch(`${BASE}/admin/login`, { headers: { cookie: `admin_session=${jwt2}` }, redirect: "manual" });
-  check("P1-14: /admin/login с активной сессией → редирект на /admin", loginPage.status === 307 || loginPage.status === 308, loginPage.status);
-}
-
-/* ─────────── P0-32: /api/health и понятные ошибки входа ─────────── */
-{
-  const actionManifest = JSON.parse(
-    readFileSync(process.env.ACTION_MANIFEST ?? ".next/server/server-reference-manifest.json", "utf8"),
-  );
-  const actionId = (name) => Object.entries(actionManifest.node).find(([, v]) => v.exportedName === name)[0];
   const health = await fetch(`${BASE}/api/health`);
   const healthBody = await health.json();
   check(
-    "P0-32: /api/health отвечает 200 и ok:true на исправном стенде",
-    health.status === 200 && healthBody.ok === true,
-    [health.status, JSON.stringify(healthBody).slice(0, 200)],
-  );
-  const names = (healthBody.checks ?? []).map((c) => c.name);
-  check(
-    "P0-32: health проверяет конфигурацию, БД и наличие владельца",
-    ["env:DATABASE_URL", "env:ADMIN_SESSION_SECRET", "db:connection", "db:schema", "db:owner_exists"].every((n) => names.includes(n)),
-    names,
+    "P0-33: /api/health сообщает канал админки bot и проверяет владельца",
+    health.status === 200 &&
+      healthBody.ok === true &&
+      healthBody.adminChannel === "telegram-bot" &&
+      (healthBody.checks ?? []).some((c) => c.name === "db:owner_exists"),
+    healthBody,
   );
   const raw = JSON.stringify(healthBody);
   check(
-    "P0-32: health не раскрывает значения секретов",
-    !raw.includes(process.env.ADMIN_SESSION_SECRET ?? "@@none@@") && !raw.includes(process.env.DATABASE_URL ?? "@@none@@"),
+    "P0-33: health не раскрывает секреты",
+    !raw.includes(process.env.BOT_TOKEN ?? "@@none@@") && !raw.includes(process.env.DATABASE_URL ?? "@@none@@"),
   );
 
-  // Ошибка конфигурации не должна превращаться в страницу «This page couldn't load»:
-  // экшен обязан вернуть текст ошибки (200 + поле error в RSC-ответе).
-  const fdBroken = new FormData();
-  fdBroken.set("email", "admin@gorn.local");
-  fdBroken.set("password", "definitely-wrong-password");
-  const badLogin = await fetch(`${BASE}/admin/login`, {
-    method: "POST",
-    redirect: "manual",
-    headers: { "next-action": actionId("loginAction"), origin: BASE, "x-real-ip": "10.9.9.77" },
-    body: await flight.encodeReply([{}, fdBroken]),
-  });
+  // Сотрудник из ADMIN_TELEGRAM_ID видит меню, посторонний — нет.
+  await resetMock();
+  const ownerId = Number(process.env.ADMIN_TELEGRAM_ID ?? 0);
+  await tgUpdate({ update_id: 8100, message: { message_id: 1, chat: { id: ownerId }, from: { id: ownerId }, text: "/admin" } });
+  const menu = await waitForCall("sendMessage", (b) => String(b.chat_id) === String(ownerId) && String(b.text ?? "").includes("панель управления"));
+  check("P0-34: владелец по ADMIN_TELEGRAM_ID получает меню панели", Boolean(menu), menu?.body?.text?.slice(0, 120));
+
+  await resetMock();
+  const stranger = 771234;
+  await tgUpdate({ update_id: 8101, message: { message_id: 2, chat: { id: stranger }, from: { id: stranger }, text: "/orders" } });
+  const denied = await waitForCall("sendMessage", (b) => String(b.chat_id) === String(stranger));
   check(
-    "P0-32: неверный пароль — ответ 200 с текстом, а не 500",
-    badLogin.status === 200 && (await badLogin.text()).includes("Неверный"),
+    "P0-34: посторонний получает отказ со своим ID",
+    Boolean(denied) && String(denied.body.text).includes("Нет доступа") && String(denied.body.text).includes(String(stranger)),
+    denied?.body?.text,
   );
 }
 

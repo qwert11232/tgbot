@@ -1,6 +1,7 @@
 // Локальный mock Telegram Bot API для тестов (TELEGRAM_API_BASE).
 // Запуск: node tests/mock-telegram.mjs [port]
-//   POST /bot<token>/<method>  → { ok: true, result: ... }
+//   POST /bot<token>/<method>  → { ok: true, result: ... } (getFile отдаёт file_path)
+//   GET  /file/bot<token>/photos/test.png → PNG-картинка 1×1 (для загрузки фото)
 //   GET  /__calls              → список вызовов (для проверок)
 //   POST /__reset              → очистить журнал
 import http from "node:http";
@@ -25,6 +26,17 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Отдача «файла» для getFile: 1×1 PNG.
+  if (req.method === "GET" && /^\/file\/bot[^/]+\/photos\/test\.png$/.test(url.pathname)) {
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    res.writeHead(200, { "content-type": "image/png", "content-length": png.length });
+    res.end(png);
+    return;
+  }
+
   const m = /^\/bot([^/]+)\/([A-Za-z]+)$/.exec(url.pathname);
   if (!m) {
     res.writeHead(404, { "content-type": "application/json" });
@@ -46,7 +58,8 @@ const server = http.createServer((req, res) => {
     const method = m[2];
     calls.push({ method, body });
 
-    const result = method === "createInvoiceLink" ? INVOICE_URL : true;
+    const result =
+      method === "createInvoiceLink" ? INVOICE_URL : method === "getFile" ? { file_path: "photos/test.png" } : true;
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true, result }));
   });

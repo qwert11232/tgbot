@@ -7,10 +7,10 @@
   --color-paper: #f6f2eb;
   --color-cream: #ede6da;
   --color-line: #ddd3c4;
-  --color-clay: #c06840;
-  --color-clay-deep: #9d4f2c;
-  --color-sage: #7d8f76;
-  --color-mute: #8a7d6d;
+  --color-clay: #9c4b2a;          /* текст на cream 4.90:1, белый на нём 6.08:1 (AA) */
+  --color-clay-deep: #8f4526;      /* 5.9:1 на paper, акцент для ссылок */
+  --color-sage: #54664d;          /* текст на cream 5.00:1 (AA) */
+  --color-mute: #6a5e51;          /* текст на cream 5.08:1 (AA) */
 
   --font-display: Georgia, "Times New Roman", "PT Serif", serif;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -41,4 +41,33 @@ body {
 
 .card-shadow {
   box-shadow: 0 1px 2px rgba(26, 20, 16, 0.06), 0 8px 24px -16px rgba(26, 20, 16, 0.25);
+}
+
+/* ── Безопасные зоны Telegram ────────────────────────────────────────────────
+   Значения --safe-top/--safe-bottom выставляет TelegramProvider из
+   tg.safeAreaInset + tg.contentSafeAreaInset (полноэкранный режим, чёлка,
+   домашний индикатор). env() — запасной вариант, если SDK не загрузился. */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ── Доступность ────────────────────────────────────────────────────────────
+   Видимый фокус для клавиатуры (мышью/тапом не мешает) и уважение к системной
+   настройке «уменьшить движение»: анимации и переходы отключаются. */
+:focus-visible {
+  outline: 2px solid var(--color-clay);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

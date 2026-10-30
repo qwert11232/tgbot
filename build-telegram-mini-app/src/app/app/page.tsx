@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Search, ShoppingBag } from "lucide-react";
 import { addToCart, useCart } from "@/components/miniapp/cart-store";
+import { haptic } from "@/components/miniapp/use-telegram-ui";
 import { formatPrice } from "@/lib/format";
 
 interface ProductBrief {
@@ -75,7 +76,7 @@ export default function CatalogPage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Поиск по каталогу"
-            className="w-full bg-transparent text-sm outline-none placeholder:text-mute"
+            className="w-full bg-transparent text-base outline-none placeholder:text-mute"
           />
         </label>
       </div>
@@ -111,7 +112,10 @@ export default function CatalogPage() {
             <div className="px-3 pb-3">
               <button
                 disabled={p.stock <= 0}
-                onClick={() => addToCart(p.id, 1, p.stock)}
+                onClick={() => {
+                  addToCart(p.id, 1, p.stock);
+                  haptic("light");
+                }}
                 className="inline-flex w-full items-center justify-center gap-1 rounded-full bg-ink py-2 text-xs font-semibold text-paper transition enabled:hover:bg-clay disabled:opacity-40"
               >
                 <Plus size={14} /> {p.stock <= 0 ? "Нет в наличии" : "В корзину"}

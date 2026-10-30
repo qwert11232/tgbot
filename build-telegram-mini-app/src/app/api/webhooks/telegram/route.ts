@@ -7,6 +7,7 @@ import { json, errorResponse } from "@/lib/http";
 import { answerPreCheckoutQuery, sendMessage, webAppKeyboard } from "@/lib/telegram-bot";
 import { expectedInvoiceAmount } from "@/lib/payments";
 import { escapeHtml, formatRub, notifyAdmin } from "@/lib/notify";
+import { handleAdminBotUpdate, type AdminUpdate } from "@/lib/admin-bot";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,13 @@ export async function POST(req: NextRequest) {
     }
 
     const update = (await req.json().catch(() => ({}))) as TgUpdate;
+
+    // Админка в боте: команды /admin…, кнопки (callback_query), ввод в диалогах,
+    // фото товара. Если апдейт не от сотрудника панели — handleAdminBotUpdate
+    // вернёт false и он обработается дальше как покупательский.
+    if (await handleAdminBotUpdate(update as unknown as AdminUpdate)) {
+      return json({ ok: true });
+    }
 
     // /start — приветствие и кнопка открытия Mini App.
     const message = update.message;

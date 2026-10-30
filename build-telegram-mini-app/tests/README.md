@@ -6,18 +6,17 @@
 |---|---|---|
 | `unit.ts` | чистые функции: HMAC `initData`, курсы Stars, `PAYMENT_MODE`, slug, magic bytes, формат, граф статусов | нет |
 | `smoke.mjs` | API: каталог, товар, авторизация Mini App, заказы, идемпотентность, остатки, вебхуки Telegram и внешнего эквайринга | да |
-| `admin.mjs` | админка: proxy, 3 уровня сессий, RBAC, server actions (товары/сотрудники/статусы), загрузка файлов, логин и rate limit | да |
+| `admin-bot.mjs` | админка в боте: доступ по ролям, заказы (список/карточка/статусы/возврат остатков), товары (цена, остаток, скрытие, создание, фото), сотрудники, отчёты, состояния диалога | да |
 | `concurrency.mjs` | гонки: оверселл, параллельные повторы idempotency-ключа, дубли платёжных вебхуков, лимиты | да |
 | `regressions.mjs` | регрессии на все исправленные дефекты из `TEST-REPORT.md` (P0-1…P2-25) | да |
-| `run-all.mjs` | последовательный прогон unit + smoke + admin + concurrency + regressions | да |
-| `mock-telegram.mjs` | локальная заглушка Bot API (`TELEGRAM_API_BASE`), журнал вызовов на `/__calls` | нет |
+| `run-all.mjs` | последовательный прогон unit + smoke + admin-bot + concurrency + regressions | да |
+| `mock-telegram.mjs` | локальная заглушка Bot API (`TELEGRAM_API_BASE`): журнал вызовов на `/__calls`, `getFile` + отдача PNG 1×1 для загрузки фото | нет |
 
 ## Подготовка
 
 ```bash
 createdb app_db
-psql "$DATABASE_URL" -c 'CREATE EXTENSION IF NOT EXISTS citext;'
-npx drizzle-kit push && npx tsx src/db/seed.ts
+npx drizzle-kit migrate && ADMIN_TELEGRAM_ID=700001 npx tsx src/db/seed.ts
 npm run build && npm start
 ```
 
@@ -25,6 +24,7 @@ npm run build && npm start
 
 ```bash
 export DATABASE_URL=postgresql://postgres@127.0.0.1:5432/app_db
+export ADMIN_TELEGRAM_ID=700001       # «владелец» для тестов админ-бота
 export BOT_TOKEN=123456:TEST-TOKEN
 export TELEGRAM_WEBHOOK_SECRET=test-webhook-secret
 export PAYMENT_WEBHOOK_SECRET=pay-webhook-secret

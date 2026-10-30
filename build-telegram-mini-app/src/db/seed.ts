@@ -2,10 +2,12 @@ import "dotenv/config";
 import { eq } from "drizzle-orm";
 import { db } from "./index";
 import { categories, productImages, products, staffUsers } from "./schema";
-import { hashPassword } from "../lib/passwords";
+
 
 /**
- * Сид: первый owner (ADMIN_EMAIL/ADMIN_PASSWORD), демо-категории и товары.
+ * Сид: первый owner (ADMIN_TELEGRAM_ID), демо-категории и товары.
+ * Вход в админку — через Telegram-бота, поэтому владелец задаётся Telegram ID
+ * (узнать свой можно командой /id в боте).
  * Демо-изображения лежат в public/seed (сгенерированные картинки-заглушки).
  * Идемпотентен: повторный запуск не дублирует записи.
  * Запуск: npx tsx src/db/seed.ts
@@ -78,19 +80,32 @@ const DEMO_PRODUCTS = [
 
 async function main() {
   console.log("→ Сид: владелец");
-  const email = (process.env.ADMIN_EMAIL ?? "admin@gorn.local").toLowerCase();
-  const password = process.env.ADMIN_PASSWORD ?? "gorn-admin-2026";
-  const [existingAdmin] = await db.select().from(staffUsers).where(eq(staffUsers.email, email)).limit(1);
-  if (!existingAdmin) {
-    await db.insert(staffUsers).values({
-      email,
-      name: "Владелец",
-      passwordHash: await hashPassword(password),
-      role: "owner",
-    });
-    console.log(`  создан owner: ${email}`);
+  const rawId = (process.env.ADMIN_TELEGRAM_ID ?? "").trim();
+  if (!rawId) {
+    console.log("  пропущено: задайте ADMIN_TELEGRAM_ID (ваш Telegram ID, узнать: /id в боте)");
   } else {
-    console.log(`  owner уже существует: ${email}`);
+    const telegramId = Number(rawId);
+    if (!Number.isSafeInteger(telegramId) || telegramId <= 0) {
+      console.log(`  ошибка: ADMIN_TELEGRAM_ID должен быть числом, получено «${rawId}»`);
+    } else {
+      const [existingAdmin] = await db
+        .select()
+        .from(staffUsers)
+        .where(eq(staffUsers.telegramId, telegramId))
+        .limit(1);
+      if (!existingAdmin) {
+        await db.insert(staffUsers).values({ telegramId, name: "Владелец", role: "owner" });
+        console.log(`  создан owner: ${telegramId}`);
+      } else if (existingAdmin.role !== "owner" || !existingAdmin.isActive) {
+        await db
+          .update(staffUsers)
+          .set({ role: "owner", isActive: true, updatedAt: new Date() })
+          .where(eq(staffUsers.id, existingAdmin.id));
+        console.log(`  owner обновлён: ${telegramId}`);
+      } else {
+        console.log(`  owner уже существует: ${telegramId}`);
+      }
+    }
   }
 
   console.log("→ Сид: категории");
