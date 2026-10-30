@@ -227,7 +227,8 @@ email/пароли сотрудников. Управление магазино
 * Загрузка фото — `getFile` → скачивание → проверка magic bytes → `saveImage`
   (Vercel Blob в production, `public/uploads` локально).
 * Миграция `drizzle/0000_init.sql` пересобрана под новую схему (citext и
-  `staff_sessions` больше не нужны). Готовый SQL для Neon — `neon-setup.sql`.
+  `staff_sessions` больше не нужны). SQL-снапшот для Neon в репозитории не хранится —
+  генерируется по инструкции `.ai/DEPLOY/db-bootstrap/README.md`.
 
 ### Проверки
 
