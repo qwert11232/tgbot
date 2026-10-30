@@ -104,6 +104,26 @@ npm run test:e2e     # API + админ-бот + гонки + регрессии
 
 Подробности — `tests/README.md`; результаты последнего прогона и список дефектов — `../TEST-REPORT.md`.
 
+## Интерфейс Mini App: что учтено
+
+Сделано по гайдлайнам Telegram Mini Apps и требованиям доступности (WCAG AA):
+
+- **Безопасные зоны.** `telegram-provider` суммирует `safeAreaInset` + `contentSafeAreaInset`
+  и пересчитывает их на `viewportChanged` / `safeAreaChanged` / `contentSafeAreaChanged`;
+  значения уходят в CSS-переменные `--safe-top` / `--safe-bottom`, шапка и подвал экранов
+  на них опираются (на iPhone с «вырезом» ничего не уезжает под статус-бар).
+- **Нативная навигация.** Внутри разделов показывается `Telegram.WebApp.BackButton`
+  (`useTelegramBack`), хендлер снимается через `offClick` — нет самодельных «← Назад»,
+  системный свайп работает как в остальных экранах Telegram.
+- **Тактильный отклик.** `HapticFeedback` на «в корзину» (`light`/`medium`) и на результат
+  оформления заказа (`success` / `error`).
+- **Контраст.** Все текстовые цвета проверяются расчётом в `tests/unit.ts` (≥ 4.5:1 и на
+  `paper`, и на `cream`); отдельная проверка — белый текст на `clay` (кнопки).
+- **Клавиатура и моушн.** Видимый `:focus-visible`, `prefers-reduced-motion: reduce`
+  отключает анимации; переходы ≤ 200 ms и только по `transform`/`opacity`.
+- **iOS-зум.** Все поля ввода — не меньше 16 px (`text-base`), иначе Safari зумит страницу
+  при фокусе и обратно не отдаляет.
+
 ## Как устроен заказ и оплата
 
 1. `POST /api/orders` — заказ создаётся в `pending_payment`, остатки списываются

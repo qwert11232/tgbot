@@ -40,6 +40,39 @@ export interface TelegramWebAppLike {
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
   openInvoice?: (url: string, callback?: (status: string) => void) => void;
+  /** Безопасные зоны устройства (чёлка, домашний индикатор). */
+  safeAreaInset?: { top?: number; bottom?: number; left?: number; right?: number };
+  /** Зоны, перекрытые интерфейсом Telegram (шапка, нижняя панель). */
+  contentSafeAreaInset?: { top?: number; bottom?: number };
+  viewportChanged?: { on?: (cb: () => void) => void; off?: (cb: () => void) => void };
+  safeAreaChanged?: { on?: (cb: () => void) => void; off?: (cb: () => void) => void };
+  contentSafeAreaChanged?: { on?: (cb: () => void) => void; off?: (cb: () => void) => void };
+  BackButton?: {
+    show?: () => void;
+    hide?: () => void;
+    onClick?: (cb: () => void) => void;
+    offClick?: (cb: () => void) => void;
+  };
+  HapticFeedback?: {
+    impactOccurred?: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => void;
+    notificationOccurred?: (type: "error" | "success" | "warning") => void;
+    selectionChanged?: () => void;
+  };
+}
+
+/**
+ * Прокидывает в CSS реальные безопасные зоны: сумма «зоны устройства» и «зоны
+ * интерфейса Telegram». Без этого в полноэкранном режиме контент уезжает под
+ * чёлку и под нижнюю панель. Искусственный минимум не задаём: в обычном
+ * (не полноэкранном) режиме Telegram уже показывает свою шапку, и лишний отступ
+ * выглядел бы как дыра.
+ */
+function applySafeArea(tg: TelegramWebAppLike): void {
+  if (typeof document === "undefined") return;
+  const top = (tg.safeAreaInset?.top ?? 0) + (tg.contentSafeAreaInset?.top ?? 0);
+  const bottom = (tg.safeAreaInset?.bottom ?? 0) + (tg.contentSafeAreaInset?.bottom ?? 0);
+  document.documentElement.style.setProperty("--safe-top", `${Math.max(0, Math.round(top))}px`);
+  document.documentElement.style.setProperty("--safe-bottom", `${Math.max(0, Math.round(bottom))}px`);
 }
 
 declare global {
@@ -74,6 +107,11 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
           tg.expand?.();
           tg.setHeaderColor?.("#f6f2eb");
           tg.setBackgroundColor?.("#f6f2eb");
+          applySafeArea(tg);
+          // Зоны меняются при развороте экрана и переходе в полный экран.
+          tg.viewportChanged?.on?.(() => applySafeArea(tg));
+          tg.safeAreaChanged?.on?.(() => applySafeArea(tg));
+          tg.contentSafeAreaChanged?.on?.(() => applySafeArea(tg));
         } catch {
           /* старая версия клиента */
         }

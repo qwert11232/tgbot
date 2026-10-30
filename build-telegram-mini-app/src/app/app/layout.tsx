@@ -15,7 +15,12 @@ export default function MiniAppLayout({ children }: { children: ReactNode }) {
       <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
       <TelegramProvider>
         <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-paper">
-          <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line/70 bg-paper/90 px-4 py-3 backdrop-blur">
+          {/* paddingTop с безопасной зоной: в полноэкранном режиме шапка Telegram
+              перекрывает верх, без этого логотип уезжал под неё. */}
+          <header
+            className="sticky z-20 flex items-center justify-between border-b border-line/70 bg-paper/90 px-4 py-3 backdrop-blur"
+            style={{ top: "var(--safe-top, 0px)", paddingTop: "calc(0.75rem + var(--safe-top, 0px))" }}
+          >
             <Link href="/app" className="font-display text-2xl tracking-tight text-ink">
               ГОРН
             </Link>
@@ -27,7 +32,10 @@ export default function MiniAppLayout({ children }: { children: ReactNode }) {
               <ClipboardList size={20} />
             </Link>
           </header>
-          <div className="flex-1">{children}</div>
+          {/* Нижний отступ — под домашний индикатор и нижнюю панель Telegram. */}
+          <div className="flex-1" style={{ paddingBottom: "var(--safe-bottom, 0px)" }}>
+            {children}
+          </div>
         </div>
       </TelegramProvider>
     </>

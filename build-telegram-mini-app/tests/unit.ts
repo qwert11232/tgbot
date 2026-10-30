@@ -112,5 +112,59 @@ check("граф переходов: из terminal-статусов нет вых
 check("граф переходов: нет перехода в самого себя", allStatuses.every((s) => !ORDER_TRANSITIONS[s as keyof typeof ORDER_TRANSITIONS].includes(s as never)));
 check("возврат остатков: отмена из pending_payment входит в список", RESTOCK_ON_CANCEL_FROM.includes("pending_payment"));
 
+
+// ------------------------------------------------ доступность палитры (WCAG AA)
+// Значения берутся из globals.css — если кто-то «украсит» цвет, тест упадёт.
+import { readFileSync } from "node:fs";
+
+function relLuminance(hex: string): number {
+  const h = hex.replace("#", "");
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  const f = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+function contrast(a: string, b: string): number {
+  const [la, lb] = [relLuminance(a), relLuminance(b)];
+  const [hi, lo] = la > lb ? [la, lb] : [lb, la];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+const palette: Record<string, string> = {};
+for (const [, name, value] of css.matchAll(/--color-([a-z-]+):\s*(#[0-9a-f]{6})/gi)) palette[name] = value;
+
+check("палитра: цвета прочитаны из globals.css", ["paper", "ink", "mute", "clay", "sage"].every((c) => palette[c]), palette);
+
+const aaBody = 4.5;
+// Вторичный текст лежит и на paper, и на cream — проверяем обе подложки.
+for (const bg of ["paper", "cream"]) {
+  for (const name of ["ink", "mute", "clay", "clay-deep", "sage"]) {
+    const value = palette[name];
+    if (!value || !palette[bg]) continue;
+    const ratio = contrast(value, palette[bg]);
+    check(
+      `контраст ${name} на ${bg} ≥ ${aaBody}:1 (WCAG AA)`,
+      ratio >= aaBody,
+      { ratio: Number(ratio.toFixed(2)), value },
+    );
+  }
+}
+check("белый текст на clay ≥ 4.5:1", contrast("#ffffff", palette.clay) >= aaBody, Number(contrast("#ffffff", palette.clay).toFixed(2)));
+check("белый текст на clay-deep ≥ 4.5:1", contrast("#ffffff", palette["clay-deep"]) >= aaBody, Number(contrast("#ffffff", palette["clay-deep"]).toFixed(2)));
+
+check("prefers-reduced-motion учтён в стилях", css.includes("prefers-reduced-motion"));
+check("видимый фокус для клавиатуры задан (:focus-visible)", css.includes(":focus-visible"));
+check("безопасные зоны Telegram проброшены в CSS (--safe-top/--safe-bottom)", css.includes("--safe-top") && css.includes("--safe-bottom"));
+
+// Поля ввода 16px: иначе iOS Safari зумит страницу при фокусе.
+const checkoutSource = readFileSync(new URL("../src/app/app/checkout/page.tsx", import.meta.url), "utf8");
+const catalogSource = readFileSync(new URL("../src/app/app/page.tsx", import.meta.url), "utf8");
+check(
+  "поля ввода не меньше 16px (нет text-sm на input/textarea)",
+  !/placeholder=|value=\{q\}/.test(checkoutSource.replace(/text-base/g, "")) || !/text-sm[^"]*outline-none/.test(checkoutSource),
+  "проверка классов полей",
+);
+check("поиск в каталоге — text-base", catalogSource.includes("bg-transparent text-base"));
+
 console.log(`\nИТОГО: PASS=${pass}, FAIL=${fails.length}`);
 if (fails.length) process.exitCode = 1;

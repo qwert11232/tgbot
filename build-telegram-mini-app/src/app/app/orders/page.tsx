@@ -1,5 +1,6 @@
 "use client";
 
+import { useTelegramBack } from "@/components/miniapp/use-telegram-ui";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -210,6 +211,7 @@ function OrdersInner() {
 }
 
 export default function OrdersPage() {
+  useTelegramBack("/app");
   return (
     <Suspense fallback={<p className="px-4 py-16 text-center text-sm text-mute">Загрузка…</p>}>
       <OrdersInner />

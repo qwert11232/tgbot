@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { dbHttp } from "@/db";
 import { categories, productImages, products } from "@/db/schema";
 import { ProductView } from "@/components/miniapp/product-detail";
+import { TelegramBack } from "@/components/miniapp/telegram-back";
 
 export const dynamic = "force-dynamic";
 
@@ -26,16 +27,19 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     : null;
 
   return (
-    <ProductView
-      product={{
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        priceMinor: product.priceMinor,
-        stock: product.stock,
-        category: category ? { id: category.id, name: category.name, slug: category.slug } : null,
-      }}
-      images={images.map((img) => ({ id: img.id, url: img.url, isPrimary: img.isPrimary }))}
-    />
+    <>
+      <TelegramBack href="/app" />
+      <ProductView
+        product={{
+          id: product.id,
+          name: product.name,
+          description: product.description,
+          priceMinor: product.priceMinor,
+          stock: product.stock,
+          category: category ? { id: category.id, name: category.name, slug: category.slug } : null,
+        }}
+        images={images.map((img) => ({ id: img.id, url: img.url, isPrimary: img.isPrimary }))}
+      />
+    </>
   );
 }

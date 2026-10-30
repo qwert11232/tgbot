@@ -1,5 +1,6 @@
 "use client";
 
+import { haptic, useTelegramBack } from "@/components/miniapp/use-telegram-ui";
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,6 +23,7 @@ const ORDER_KEY_STORAGE = "gorn_order_key";
  * поэтому корзина очищается сразу после создания заказа — данные не теряются.
  */
 export default function CheckoutPage() {
+  useTelegramBack("/app/cart");
   const router = useRouter();
   const { lines, total, details, missingCount } = useCartDetails();
   const { apiFetch, token, ready, authError, user, tg } = useTelegram();
@@ -93,6 +95,7 @@ export default function CheckoutPage() {
       localStorage.removeItem(ORDER_KEY_STORAGE);
       clearCart();
 
+      haptic("success");
       const invoiceUrl: string | null = data.invoiceUrl ?? null;
       if (invoiceUrl && typeof tg?.openInvoice === "function") {
         tg.openInvoice(invoiceUrl, (status: string) => {
@@ -105,6 +108,7 @@ export default function CheckoutPage() {
       // оплатить его можно из «Мои заказы».
       router.replace("/app/orders?created=1");
     } catch {
+      haptic("error");
       setError("Сеть недоступна. Попробуйте ещё раз.");
       setSubmitting(false);
     }
@@ -136,7 +140,7 @@ export default function CheckoutPage() {
             required
             minLength={2}
             placeholder="Как к вам обращаться"
-            className="w-full rounded-xl border border-line bg-white/70 px-4 py-3 text-sm outline-none focus:border-clay"
+            className="w-full rounded-xl border border-line bg-white/70 px-4 py-3 text-base outline-none focus:border-clay"
           />
         </Field>
         <Field label="Телефон" required>
@@ -147,7 +151,7 @@ export default function CheckoutPage() {
             minLength={5}
             inputMode="tel"
             placeholder="+7 900 000-00-00"
-            className="w-full rounded-xl border border-line bg-white/70 px-4 py-3 text-sm outline-none focus:border-clay"
+            className="w-full rounded-xl border border-line bg-white/70 px-4 py-3 text-base outline-none focus:border-clay"
           />
         </Field>
         <Field label="Адрес доставки">
@@ -155,7 +159,7 @@ export default function CheckoutPage() {
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             placeholder="Город, улица, дом, квартира"
-            className="w-full rounded-xl border border-line bg-white/70 px-4 py-3 text-sm outline-none focus:border-clay"
+            className="w-full rounded-xl border border-line bg-white/70 px-4 py-3 text-base outline-none focus:border-clay"
           />
         </Field>
         <Field label="Комментарий">
@@ -164,7 +168,7 @@ export default function CheckoutPage() {
             onChange={(e) => setComment(e.target.value)}
             rows={2}
             placeholder="Пожелания к заказу"
-            className="w-full resize-none rounded-xl border border-line bg-white/70 px-4 py-3 text-sm outline-none focus:border-clay"
+            className="w-full resize-none rounded-xl border border-line bg-white/70 px-4 py-3 text-base outline-none focus:border-clay"
           />
         </Field>
 

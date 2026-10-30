@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Minus, Plus, ShoppingBag } from "lucide-react";
 import { addToCart, getCart, setLineQty, useCart } from "@/components/miniapp/cart-store";
+import { haptic } from "@/components/miniapp/use-telegram-ui";
 import { formatPrice } from "@/lib/format";
 
 export interface ProductViewData {
@@ -92,7 +93,10 @@ export function ProductView({ product, images }: { product: ProductViewData; ima
           </button>
         ) : qty === 0 ? (
           <button
-            onClick={() => addToCart(product.id, 1, product.stock)}
+            onClick={() => {
+              addToCart(product.id, 1, product.stock);
+              haptic("medium");
+            }}
             className="flex w-full items-center justify-center gap-2 rounded-full bg-clay py-3.5 text-sm font-semibold text-white transition hover:bg-clay-deep"
           >
             <ShoppingBag size={17} /> В корзину · {formatPrice(product.priceMinor)}
